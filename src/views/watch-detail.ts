@@ -2,7 +2,7 @@ import { db, deleteWatch, POSITIONS, WIND_STATES, watchMeasurements, type Measur
 import { drawTrace } from '../ui/canvas';
 import { historyChart } from '../ui/history-chart';
 import { h, toast } from '../util/dom';
-import { fmtBph, fmtDate, fmtDateTime, fmtDuration, fmtMs, fmtRate, rateGrade } from '../util/format';
+import { fmtBph, fmtDate, fmtDateTime, fmtDuration, fmtMs, fmtRate, rateGrade, ranfftUrl } from '../util/format';
 import { watchThumb } from './watches';
 
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
@@ -129,7 +129,8 @@ export function watchDetailView(root: HTMLElement, id: string): void {
             { class: 'watch-head-body' },
             h('h1', null, w.name),
             h('dl', { class: 'specs' }, specs.map(([k, v]) => h('div', null, h('dt', null, k), h('dd', null, v)))),
-            w.notes && h('p', { class: 'muted' }, w.notes),
+            w.caliber && h('p', { class: 'small' }, h('a', { href: ranfftUrl(w.brand, w.caliber), target: '_blank', rel: 'noopener' }, `Look up caliber ${w.caliber} on Ranfft DB ↗`)),
+            w.notes && h('p', { class: 'muted notes-text' }, w.notes),
             h(
               'div',
               { class: 'actions' },

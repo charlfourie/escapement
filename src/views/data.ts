@@ -1,5 +1,6 @@
 import { db, POSITIONS, WIND_STATES, type Measurement, type Watch } from '../db';
 import { h, toast } from '../util/dom';
+import { aiSettingsBlock } from './identify-panel';
 
 interface ExportFile {
   app: 'escapement';
@@ -122,6 +123,13 @@ export function dataView(root: HTMLElement): void {
           h('button', { class: 'btn', onclick: () => void exportCsv() }, 'Measurements (.csv)'),
         ),
         h('p', { class: 'muted small' }, 'The JSON backup includes photos and traces. The CSV is one row per measurement, ready for a spreadsheet.'),
+      ),
+      h(
+        'section',
+        { class: 'panel' },
+        h('h2', null, 'AI identification'),
+        h('p', null, 'When you add or edit a watch, “Identify with AI” can work out the brand, reference and caliber from photos. It uses your own Anthropic API key.'),
+        aiSettingsBlock(),
       ),
       h(
         'section',

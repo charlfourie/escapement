@@ -2,6 +2,7 @@ import { STANDARD_BPH } from '../analysis/analyze';
 import { blankWatch, db, type Watch } from '../db';
 import { dialGlyph, h, photoUrl, resizeImage, select, toast } from '../util/dom';
 import { fmtBph, fmtHz } from '../util/format';
+import { identifyPanel } from './identify-panel';
 
 export function watchFormView(root: HTMLElement, id: string | null): void {
   void (async () => {
@@ -11,6 +12,9 @@ export function watchFormView(root: HTMLElement, id: string | null): void {
       return;
     }
     const w: Watch = existing ? { ...existing } : blankWatch();
+    const formHost = h('div');
+
+    const renderForm = () => {
 
     const text = (key: 'name' | 'brand' | 'reference' | 'caliber' | 'notes', label: string, placeholder = '', required = false) =>
       h(
@@ -87,7 +91,7 @@ export function watchFormView(root: HTMLElement, id: string | null): void {
           'label',
           { class: 'field' },
           h('span', null, 'Beat rate'),
-          select<number>([[0, 'Unknown (auto-detect)'], ...STANDARD_BPH.map((b): [number, string] => [b, `${fmtBph(b)} bph · ${fmtHz(b)}`])], w.bph ?? 0, (v) => (w.bph = Number(v) || null)),
+          select<number>([[0, 'Unknown (auto-detect)'], ...[...new Set([...STANDARD_BPH, ...(w.bph ? [w.bph] : [])])].sort((x, y) => x - y).map((b): [number, string] => [b, `${fmtBph(b)} bph · ${fmtHz(b)}`])], w.bph ?? 0, (v) => (w.bph = Number(v) || null)),
         ),
         h(
           'label',
@@ -108,6 +112,21 @@ export function watchFormView(root: HTMLElement, id: string | null): void {
       h('div', { class: 'actions' }, h('button', { class: 'btn primary', type: 'submit' }, existing ? 'Save changes' : 'Add watch'), h('a', { class: 'btn', href: existing ? `#/watches/${w.id}` : '#/watches' }, 'Cancel')),
     );
 
-    root.append(h('div', { class: 'page narrow' }, h('header', { class: 'page-head' }, h('h1', null, existing ? `Edit ${existing.name}` : 'Add a watch')), form));
+    formHost.replaceChildren(form);
+    };
+
+    const panel = identifyPanel(
+      () => w,
+      (patch, notes, photo) => {
+        Object.assign(w, patch);
+        if (notes) w.notes = w.notes.trim() ? `${w.notes.trim()}\n\n${notes}` : notes;
+        if (photo) w.photo = photo;
+        renderForm();
+        toast('Details added. Review them, then save.');
+        formHost.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      },
+    );
+    renderForm();
+    root.append(h('div', { class: 'page narrow' }, h('header', { class: 'page-head' }, h('h1', null, existing ? `Edit ${existing.name}` : 'Add a watch')), panel, formHost));
   })();
 }

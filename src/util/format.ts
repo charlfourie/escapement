@@ -34,3 +34,8 @@ export function beatErrorGrade(be: number | null): Grade {
   if (be <= 1.5) return 'ok';
   return 'bad';
 }
+
+/** Search link for a calibre on Ranfft DB (ranfft.org), the community movement encyclopedia. */
+export function ranfftUrl(brand: string, caliber: string): string {
+  return `https://ranfft.org/calibers?quick=${encodeURIComponent([brand, caliber].filter((x) => x.trim()).join(' '))}`;
+}

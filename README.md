@@ -13,6 +13,8 @@ No app to install, no account, no server. Your data stays in your browser.
 - **Your collection:** add watches with photos, caliber, beat rate and service dates
 - **Measurement log:** save each reading with its position (dial up, crown down…), wind state and notes. Each watch gets a rate-over-time chart with the COSC band, a positional delta, and the stored trace for every reading.
 - **Your data, your device:** stored in IndexedDB, with JSON backup/restore and CSV export for spreadsheets
+- **Identify with AI:** snap the dial, caseback or movement (or pick photos), add what you know, and Claude reads the markings and checks them online, suggesting brand, reference, caliber, beat rate and lift angle with sources and caveats. You choose what to apply. Uses your own Anthropic API key, stored only in your browser (bring your own key, so there's no server).
+- **Movement lookups:** every watch with a caliber links to its entry on [Ranfft DB](https://ranfft.org), the community movement encyclopedia.
 - **Simulated watch:** try everything without a watch. Set rate, beat error, amplitude and noise, and listen to it tick.
 
 ## How it works
