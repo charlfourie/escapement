@@ -5,6 +5,8 @@ export interface Prefs {
   source: 'mic' | 'sim';
   deviceId: string;
   sensitivity: number;
+  /** Let the bank of detectors find the trigger level and filter. */
+  autoTrigger: boolean;
   traceSpan: number;
   sim: SimParams;
   lastWatch: string;
@@ -16,6 +18,7 @@ const DEFAULTS: Prefs = {
   source: 'mic',
   deviceId: '',
   sensitivity: DEFAULT_DETECTOR.sensitivity,
+  autoTrigger: true,
   traceSpan: 10,
   sim: DEFAULT_SIM,
   lastWatch: '',

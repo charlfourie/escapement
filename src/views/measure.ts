@@ -1,5 +1,6 @@
 import { AudioEngine, listInputs, type EngineUpdate } from '../audio/engine';
-import { SNIPPET_BIN_MS, SNIPPET_PRE_MS } from '../audio/detector';
+import { AUTO_BANK, SNIPPET_BIN_MS, SNIPPET_PRE_MS } from '../audio/detector';
+import { AutoLock, type LockState } from '../analysis/autolock';
 import type { SimParams } from '../audio/synth';
 import { analyze, downsample, STANDARD_BPH, type Analysis } from '../analysis/analyze';
 import { blankWatch, db, newId, POSITIONS, WIND_STATES, type Position, type Watch, type WindState } from '../db';
@@ -47,6 +48,11 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
   let state: State = 'idle';
   let times: number[] = [];
   let snippets: number[][] = [];
+  let autolock: AutoLock | null = null;
+  let lock: LockState | null = null;
+  let streamSnips: number[][][] = [];
+  let refractory = 50;
+  let evalCount = 0;
   let startedAt = 0;
   let live: Analysis | null = null;
   let full: Analysis | null = null;
@@ -146,17 +152,33 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
   const deviceField = h('label', { class: 'field' }, h('span', null, 'Microphone'), deviceSel);
   deviceField.hidden = prefs.source !== 'mic';
 
+  const triggerSlider = slider('Trigger level', 2, 20, 0.5, prefs.sensitivity, (v) => `×${v.toFixed(1)}`, (v) => {
+    prefs.sensitivity = v;
+    savePrefs({ sensitivity: v });
+    engine.setDetector({ sensitivity: v });
+  });
+  triggerSlider.hidden = prefs.autoTrigger;
+  const lockStatus = h('p', { class: 'lock-status' });
+  const autoBox = h('input', {
+    type: 'checkbox',
+    checked: prefs.autoTrigger,
+    onchange: (e: Event) => {
+      prefs.autoTrigger = (e.target as HTMLInputElement).checked;
+      savePrefs({ autoTrigger: prefs.autoTrigger });
+      triggerSlider.hidden = prefs.autoTrigger;
+      renderLockStatus();
+      if (state === 'running') void restart();
+    },
+  });
+
   const signalPanel = h(
     'section',
     { class: 'panel' },
-    h('header', { class: 'panel-head' }, h('h2', null, 'Signal')),
+    h('header', { class: 'panel-head' }, h('h2', null, 'Signal'), h('label', { class: 'check', title: 'Automatically find the best trigger level and filter' }, autoBox, 'Auto-tune')),
     meter,
     h('div', { class: 'meter-legend' }, h('span', null, h('i', { class: 'sw fill' }), 'level'), h('span', null, h('i', { class: 'sw noise' }), 'noise'), h('span', null, h('i', { class: 'sw thr' }), 'trigger')),
-    slider('Trigger level', 2, 20, 0.5, prefs.sensitivity, (v) => `×${v.toFixed(1)}`, (v) => {
-      prefs.sensitivity = v;
-      savePrefs({ sensitivity: v });
-      engine.setDetector({ sensitivity: v });
-    }),
+    lockStatus,
+    triggerSlider,
     deviceField,
     h('dl', { class: 'stats' }, h('div', null, h('dt', null, 'Ticks'), stTicks), h('div', null, h('dt', null, 'Clean beats'), stQuality), h('div', null, h('dt', null, 'Jitter'), stJitter), h('div', null, h('dt', null, 'Elapsed'), stElapsed)),
   );
@@ -220,7 +242,8 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
       h('li', null, 'Find a quiet room. Lay the watch dial-up on a soft cloth with the caseback (or the lugs) touching your phone or laptop microphone.'),
       h('li', null, 'Better still, use a cheap piezo contact mic pressed against the case. It ignores room noise.'),
       h('li', null, 'Press Start. When dots form two tidy lines, give it 30–60 seconds, then press Stop and save.'),
-      h('li', null, 'Scattered dots? Raise the trigger level. No ticks? Lower it, or move the mic closer.'),
+      h('li', null, 'Leave Auto-tune on: it tries every filter and trigger level at once and locks onto the cleanest beat. Setting the beat rate, if you know it, makes locking faster and more reliable.'),
+      h('li', null, 'With Auto-tune off: scattered dots? Raise the trigger level. No ticks? Lower it, or move the mic closer.'),
       h('li', null, 'Choose the beat rate manually if auto-detect picks half the real rate (that happens when only every other tick is heard).'),
     ),
   );
@@ -275,14 +298,25 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
 
   // ---------- engine ----------
   function onUpdate(u: EngineUpdate) {
-    for (const t of u.ticks) {
-      times.push(t.time);
-      snippets.push(t.envelope);
-    }
-    if (snippets.length > 12) snippets = snippets.slice(-12);
-    if (times.length && times[times.length - 1] - times[0] > MAX_SEC) {
-      const cutoff = times[times.length - 1] - MAX_SEC;
-      times = times.filter((t) => t >= cutoff);
+    if (autolock) {
+      for (const t of u.ticks) {
+        autolock.add(t.d, t.time);
+        const s = (streamSnips[t.d] ??= []);
+        s.push(t.envelope);
+        if (s.length > 12) s.shift();
+      }
+      autolock.trim(MAX_SEC);
+      followStream();
+    } else {
+      for (const t of u.ticks) {
+        times.push(t.time);
+        snippets.push(t.envelope);
+      }
+      if (snippets.length > 12) snippets = snippets.slice(-12);
+      if (times.length && times[times.length - 1] - times[0] > MAX_SEC) {
+        const cutoff = times[times.length - 1] - MAX_SEC;
+        times = times.filter((t) => t >= cutoff);
+      }
     }
     const db_ = (v: number) => (v > 0 ? 20 * Math.log10(v) : -120);
     const pct = (v: number) => `${Math.max(0, Math.min(100, ((db_(v) + 80) / 80) * 100))}%`;
@@ -292,17 +326,55 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
     if (u.ticks.length) dirty = true;
   }
 
+  /** In auto mode, point times/snippets at the currently chosen detector stream. */
+  function followStream() {
+    if (!autolock) return;
+    const idx = lock?.index ?? 0;
+    times = autolock.streams[idx];
+    snippets = streamSnips[idx] ?? [];
+  }
+
+  /** Beat rate to analyse with: the user's setting, or what auto-lock found. */
+  function analysisBph(): number | null {
+    if (bphSetting) return bphSetting;
+    if (autolock) return lock?.locked ? lock.bph : null;
+    return null;
+  }
+
+  function renderLockStatus() {
+    lockStatus.hidden = !prefs.autoTrigger;
+    if (!prefs.autoTrigger) return;
+    const running = state === 'running';
+    lockStatus.dataset.locked = String(Boolean(running && lock?.locked));
+    if (!running || !autolock) {
+      lockStatus.textContent = `Auto-tune listens through ${AUTO_BANK.length} filter and trigger combinations at once and keeps whichever hears a clean, steady beat.`;
+    } else if (!lock?.locked) {
+      lockStatus.textContent = lock && lock.score > 0.05 ? `Searching for the beat… best match so far ${Math.round(lock.score * 100)}%` : 'Searching for the beat…';
+    } else {
+      const b = AUTO_BANK[lock.index];
+      lockStatus.textContent = `Locked on · ${b.highpassHz / 1000} kHz filter · trigger ×${b.sensitivity} · ${Math.round(lock.score * 100)}% match`;
+    }
+  }
+
   async function start() {
     state = 'starting';
     times = [];
     snippets = [];
     live = full = null;
+    autolock = prefs.autoTrigger ? new AutoLock(AUTO_BANK.length) : null;
+    lock = null;
+    streamSnips = [];
+    refractory = 50;
+    evalCount = 0;
     savePanel.hidden = true;
     showMessage(null);
     renderState();
     engine.onUpdate = onUpdate;
     try {
-      await engine.start(prefs.source === 'sim' ? { kind: 'sim', params: prefs.sim } : { kind: 'mic', deviceId: prefs.deviceId || undefined }, { sensitivity: prefs.sensitivity });
+      await engine.start(prefs.source === 'sim' ? { kind: 'sim', params: prefs.sim } : { kind: 'mic', deviceId: prefs.deviceId || undefined }, {
+        auto: prefs.autoTrigger,
+        detector: { sensitivity: prefs.sensitivity },
+      });
     } catch (err) {
       state = 'idle';
       renderState();
@@ -328,16 +400,37 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
     await engine.stop();
     if (state !== 'running' && state !== 'starting') return;
     state = 'stopped';
-    full = analyze(times, { bph: bphSetting || null, windowSec: MAX_SEC });
+    followStream();
+    full = analyze(times, { bph: analysisBph(), windowSec: MAX_SEC });
     update(false);
+    renderLockStatus();
     renderState();
     if (showSave) renderSave();
   }
 
   function update(recompute = true) {
     if (recompute && state === 'running') {
-      live = analyze(times, { bph: bphSetting || null, windowSec: LIVE_WINDOW_SEC });
-      full = analyze(times, { bph: live?.bph ?? (bphSetting || null), windowSec: MAX_SEC });
+      if (autolock) {
+        // Full search is heavier, so run it every third update (~0.75 s).
+        if (evalCount++ % 3 === 0) {
+          lock = autolock.evaluate(bphSetting || null);
+          engine.select(lock.index);
+          // Once locked, ignore anything within ~half a beat of a tick: kills echoes.
+          const want = lock.locked && lock.bph ? Math.round(0.45 * (3600 / lock.bph) * 1000) : 50;
+          if (want !== refractory) {
+            refractory = want;
+            engine.setRefractory(want);
+          }
+          renderLockStatus();
+        }
+        followStream();
+      }
+      if (!autolock || lock?.locked) {
+        live = analyze(times, { bph: analysisBph(), windowSec: LIVE_WINDOW_SEC });
+        full = analyze(times, { bph: live?.bph ?? analysisBph(), windowSec: MAX_SEC });
+      } else {
+        live = full = null;
+      }
     }
     const r = state === 'stopped' ? full : live;
     if (r) {
@@ -350,7 +443,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
       roBE.sub.textContent = r.beatError === null ? 'Only one tick side heard' : r.beatError <= 0.6 ? 'In beat' : 'Slightly out of beat';
       if (r.beatError !== null && r.beatError > 1.5) roBE.sub.textContent = 'Out of beat';
       roBph.value.textContent = fmtBph(r.bph);
-      roBph.sub.textContent = `${fmtHz(r.bph)} · ${r.bphDetected ? 'detected' : 'set'}`;
+      roBph.sub.textContent = `${fmtHz(r.bph)} · ${bphSetting ? 'set' : 'detected'}`;
       stQuality.textContent = `${Math.round(r.quality * 100)}%`;
       stJitter.textContent = `${r.jitter.toFixed(2)} ms`;
     } else {
@@ -358,7 +451,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
         ro.value.textContent = '—';
         delete ro.el.dataset.grade;
       }
-      const sub = state === 'running' ? 'Listening…' : ' ';
+      const sub = state === 'running' ? (autolock ? 'Searching for the beat…' : 'Listening…') : ' ';
       roRate.sub.textContent = sub;
       roBE.sub.textContent = ' ';
       roBph.sub.textContent = ' ';
@@ -375,7 +468,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
     raf = requestAnimationFrame(draw);
     if (!dirty) return;
     dirty = false;
-    const msg = state === 'running' ? (times.length < 8 ? 'Listening for ticks…' : 'Locking on…') : state === 'starting' ? 'Starting…' : 'Press Start, then hold the watch against the microphone';
+    const msg = state === 'running' ? (times.length < 8 ? 'Listening for ticks…' : autolock && !lock?.locked ? 'Searching for the beat…' : 'Locking on…') : state === 'starting' ? 'Starting…' : 'Press Start, then hold the watch against the microphone';
     drawTrace(traceCanvas, full?.points ?? [], { spanMs: prefs.traceSpan, windowSec: null, message: msg });
     drawWaveform(waveCanvas, snippets, SNIPPET_BIN_MS, SNIPPET_PRE_MS);
   }
@@ -504,6 +597,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
   void loadDevices();
   update(false);
   renderState();
+  renderLockStatus();
   draw();
 
   return () => {

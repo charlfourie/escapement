@@ -1,11 +1,12 @@
 import workletUrl from './tick-processor.ts?worker&url';
-import type { DetectorSettings, TickEvent } from './detector';
+import type { DetectorSettings } from './detector';
+import type { BankTick } from './tick-processor';
 import type { SimParams } from './synth';
 
 export type Source = { kind: 'mic'; deviceId?: string } | { kind: 'sim'; params: SimParams };
 
 export interface EngineUpdate {
-  ticks: TickEvent[];
+  ticks: BankTick[];
   level: number;
   noise: number;
   threshold: number;
@@ -22,7 +23,7 @@ export class AudioEngine {
     return this.ctx !== null;
   }
 
-  async start(source: Source, detector: Partial<DetectorSettings>): Promise<void> {
+  async start(source: Source, opts: { auto: boolean; detector: Partial<DetectorSettings> }): Promise<void> {
     await this.stop();
     // Create and resume inside the click handler so browsers allow audio.
     const ctx = new AudioContext({ latencyHint: 'interactive' });
@@ -46,7 +47,7 @@ export class AudioEngine {
         numberOfInputs: 1,
         numberOfOutputs: 1,
         outputChannelCount: [1],
-        processorOptions: { detector, sim: source.kind === 'sim' ? source.params : null },
+        processorOptions: { detector: opts.detector, auto: opts.auto, sim: source.kind === 'sim' ? source.params : null },
       });
       node.port.onmessage = (e: MessageEvent) => {
         if (e.data?.type === 'update') this.onUpdate?.(e.data as EngineUpdate);
@@ -66,6 +67,16 @@ export class AudioEngine {
 
   setDetector(settings: Partial<DetectorSettings>): void {
     this.node?.port.postMessage({ type: 'detector', settings });
+  }
+
+  /** Dead time after each tick, for all detectors (cuts echoes once locked). */
+  setRefractory(ms: number): void {
+    this.node?.port.postMessage({ type: 'refractory', ms });
+  }
+
+  /** Which detector feeds the level meter. */
+  select(index: number): void {
+    this.node?.port.postMessage({ type: 'select', index });
   }
 
   setSim(params: Partial<SimParams>): void {

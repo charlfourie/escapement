@@ -126,6 +126,8 @@ export interface AnalyzeOptions {
   bph?: number | null;
   /** Only use the most recent N seconds. */
   windowSec?: number;
+  /** How many leading ticks to try as the grid's starting point (default 10). */
+  starts?: number;
 }
 
 export function analyze(allTimes: number[], opts: AnalyzeOptions = {}): Analysis | null {
@@ -145,7 +147,7 @@ export function analyze(allTimes: number[], opts: AnalyzeOptions = {}): Analysis
 
   // Pick the starting tick that lets the most ticks line up on the grid.
   let best = unwrap(times, P, 0);
-  for (let s = 1; s < Math.min(10, times.length - 8); s++) {
+  for (let s = 1; s < Math.min(opts.starts ?? 10, times.length - 8); s++) {
     const u = unwrap(times, P, s);
     if (u.sel.length > best.sel.length) best = u;
   }

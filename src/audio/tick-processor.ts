@@ -1,7 +1,7 @@
-/// AudioWorklet processor: runs the tick detector on the audio thread so
+/// AudioWorklet processor: runs the tick detector(s) on the audio thread so
 /// timestamps are sample-accurate and unaffected by main-thread jank.
 
-import { TickDetector, type DetectorSettings, type TickEvent } from './detector';
+import { AUTO_BANK, TickDetector, type DetectorSettings, type TickEvent } from './detector';
 import { TickSynth, type SimParams } from './synth';
 
 // AudioWorkletGlobalScope globals (not in the DOM lib).
@@ -14,24 +14,34 @@ declare class AudioWorkletProcessor {
 }
 
 interface Options {
-  processorOptions?: { detector?: Partial<DetectorSettings>; sim?: SimParams | null };
+  processorOptions?: { detector?: Partial<DetectorSettings>; auto?: boolean; sim?: SimParams | null };
 }
 
+/** A tick tagged with the index of the detector that heard it. */
+export type BankTick = TickEvent & { d: number };
+
 class TickProcessor extends AudioWorkletProcessor {
-  private detector: TickDetector;
+  private bank: TickDetector[];
+  private auto: boolean;
+  private selected = 0;
   private synth: TickSynth | null;
   private buffer = new Float32Array(128);
-  private pending: TickEvent[] = [];
+  private pending: BankTick[] = [];
   private lastPost = 0;
 
   constructor(options: Options) {
     super();
     const opts = options.processorOptions ?? {};
-    this.detector = new TickDetector(sampleRate, opts.detector);
+    this.auto = Boolean(opts.auto);
+    this.bank = this.auto
+      ? AUTO_BANK.map((b) => new TickDetector(sampleRate, { ...opts.detector, ...b }))
+      : [new TickDetector(sampleRate, opts.detector)];
     this.synth = opts.sim ? new TickSynth(sampleRate, opts.sim) : null;
     this.port.onmessage = (e: MessageEvent) => {
       const m = e.data;
-      if (m?.type === 'detector') this.detector.setSettings(m.settings);
+      if (m?.type === 'detector' && !this.auto) this.bank[0].setSettings(m.settings);
+      else if (m?.type === 'refractory') this.bank.forEach((d) => d.setSettings({ refractoryMs: m.ms }));
+      else if (m?.type === 'select' && m.index >= 0 && m.index < this.bank.length) this.selected = m.index;
       else if (m?.type === 'sim' && this.synth) this.synth.setParams(m.params);
     };
   }
@@ -51,17 +61,18 @@ class TickProcessor extends AudioWorkletProcessor {
     }
     if (!input) return true;
 
-    const ticks = this.detector.process(input);
-    if (ticks.length) this.pending.push(...ticks);
+    for (let d = 0; d < this.bank.length; d++) {
+      for (const t of this.bank[d].process(input)) this.pending.push({ ...t, d });
+    }
 
     if (currentFrame - this.lastPost >= sampleRate * 0.05) {
-      this.port.postMessage({
-        type: 'update',
-        ticks: this.pending,
-        level: this.detector.readLevel(),
-        noise: this.detector.noiseFloor,
-        threshold: this.detector.threshold,
+      const sel = this.bank[this.selected];
+      let level = 0;
+      this.bank.forEach((det, i) => {
+        const l = det.readLevel();
+        if (i === this.selected) level = l;
       });
+      this.port.postMessage({ type: 'update', ticks: this.pending, level, noise: sel.noiseFloor, threshold: sel.threshold });
       this.pending = [];
       this.lastPost = currentFrame;
     }

@@ -32,6 +32,16 @@ export const DEFAULT_DETECTOR: DetectorSettings = {
   highpassHz: 2000,
 };
 
+/**
+ * Auto mode runs one detector per combination of filter and trigger level in
+ * parallel; the analysis keeps whichever stream produces the cleanest beat.
+ */
+export const AUTO_HIGHPASS = [1500, 3000, 6000];
+export const AUTO_SENSITIVITY = [3, 5, 8, 13];
+export const AUTO_BANK: Array<Pick<DetectorSettings, 'highpassHz' | 'sensitivity'>> = AUTO_HIGHPASS.flatMap((highpassHz) =>
+  AUTO_SENSITIVITY.map((sensitivity) => ({ highpassHz, sensitivity })),
+);
+
 /** Emitted envelope snippet: 2 ms before onset, 22 ms after. */
 export const SNIPPET_PRE_MS = 2;
 export const SNIPPET_MS = 24;
