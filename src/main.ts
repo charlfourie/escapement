@@ -7,7 +7,7 @@ import { watchDetailView } from './views/watch-detail';
 import { dataView } from './views/data';
 
 /** Set to your public repo URL to show a source link in the footer. */
-const REPO_URL = '';
+const REPO_URL = 'https://github.com/charlfourie/escapement';
 
 type Cleanup = void | (() => void);
 type Route = [RegExp, (root: HTMLElement, m: RegExpMatchArray, q: URLSearchParams) => Cleanup, string];
