@@ -28,6 +28,9 @@ class TickProcessor extends AudioWorkletProcessor {
   private buffer = new Float32Array(128);
   private pending: BankTick[] = [];
   private lastPost = 0;
+  /** Raw-input recording for the clip recorder. */
+  private rec: Float32Array | null = null;
+  private recPos = 0;
 
   constructor(options: Options) {
     super();
@@ -43,6 +46,10 @@ class TickProcessor extends AudioWorkletProcessor {
       else if (m?.type === 'refractory') this.bank.forEach((d) => d.setSettings({ refractoryMs: m.ms }));
       else if (m?.type === 'select' && m.index >= 0 && m.index < this.bank.length) this.selected = m.index;
       else if (m?.type === 'sim' && this.synth) this.synth.setParams(m.params);
+      else if (m?.type === 'record') {
+        this.rec = new Float32Array(Math.round(Math.min(30, Math.max(1, Number(m.seconds) || 10)) * sampleRate));
+        this.recPos = 0;
+      }
     };
   }
 
@@ -60,6 +67,17 @@ class TickProcessor extends AudioWorkletProcessor {
       input = inputs[0]?.[0];
     }
     if (!input) return true;
+
+    if (this.rec) {
+      const n = Math.min(input.length, this.rec.length - this.recPos);
+      this.rec.set(input.subarray(0, n), this.recPos);
+      this.recPos += n;
+      if (this.recPos >= this.rec.length) {
+        const samples = this.rec;
+        this.rec = null;
+        this.port.postMessage({ type: 'clip', sampleRate, samples }, [samples.buffer]);
+      }
+    }
 
     for (let d = 0; d < this.bank.length; d++) {
       for (const t of this.bank[d].process(input)) this.pending.push({ ...t, d });

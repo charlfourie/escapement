@@ -5,6 +5,11 @@ import type { SimParams } from './synth';
 
 export type Source = { kind: 'mic'; deviceId?: string } | { kind: 'sim'; params: SimParams };
 
+export interface Clip {
+  sampleRate: number;
+  samples: Float32Array;
+}
+
 export interface EngineUpdate {
   ticks: BankTick[];
   level: number;
@@ -18,6 +23,7 @@ export class AudioEngine {
   private stream: MediaStream | null = null;
   private monitor: GainNode | null = null;
   onUpdate: ((u: EngineUpdate) => void) | null = null;
+  private clipWaiter: { resolve: (c: Clip) => void; reject: (e: Error) => void } | null = null;
 
   get running(): boolean {
     return this.ctx !== null;
@@ -51,6 +57,10 @@ export class AudioEngine {
       });
       node.port.onmessage = (e: MessageEvent) => {
         if (e.data?.type === 'update') this.onUpdate?.(e.data as EngineUpdate);
+        else if (e.data?.type === 'clip' && this.clipWaiter) {
+          this.clipWaiter.resolve({ sampleRate: e.data.sampleRate, samples: e.data.samples });
+          this.clipWaiter = null;
+        }
       };
       if (this.stream) ctx.createMediaStreamSource(this.stream).connect(node);
       const monitor = ctx.createGain();
@@ -79,6 +89,16 @@ export class AudioEngine {
     this.node?.port.postMessage({ type: 'select', index });
   }
 
+  /** Record the raw input for `seconds` and resolve with the samples. */
+  record(seconds: number): Promise<Clip> {
+    if (!this.node) return Promise.reject(new Error('Not running'));
+    this.clipWaiter?.reject(new Error('Superseded'));
+    return new Promise((resolve, reject) => {
+      this.clipWaiter = { resolve, reject };
+      this.node!.port.postMessage({ type: 'record', seconds });
+    });
+  }
+
   setSim(params: Partial<SimParams>): void {
     this.node?.port.postMessage({ type: 'sim', params });
   }
@@ -88,6 +108,8 @@ export class AudioEngine {
   }
 
   async stop(): Promise<void> {
+    this.clipWaiter?.reject(new Error('Stopped before the clip finished'));
+    this.clipWaiter = null;
     this.stream?.getTracks().forEach((t) => t.stop());
     this.stream = null;
     this.node?.disconnect();

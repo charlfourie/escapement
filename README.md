@@ -6,7 +6,8 @@ No app to install, no account, no server. Your data stays in your browser.
 
 ## Features
 
-- **Live timegrapher:** rate (s/day), beat error (ms) and beat rate (auto-detected: 14,400–36,000 bph)
+- **Live timegrapher:** rate (s/day), beat error (ms), amplitude (°) and beat rate (auto-detected: 14,400–36,000 bph)
+- **Six-position test:** guided dial up / dial down / crown up, down, left, right, with 5 s to settle and 30 s per position; gives the average rate, positional delta, amplitude and worst beat error, saved as one set
 - **Auto-tune:** listens through 12 filter and trigger combinations at once and locks onto whichever hears a clean, steady beat. No fiddling with sliders, even on a noisy phone mic.
 - **Paper-trace view:** the classic timegrapher dot plot. Flat means accurate, a slope means gaining or losing, and two separate lines mean beat error.
 - **Tick waveform:** see the unlock, impulse and drop clicks of each beat
@@ -34,6 +35,8 @@ score = precision × recall / (1 + jitter / 1.5 ms)
 ```
 
 A fast O(n) pre-screen picks the candidates worth a full fit. Precision punishes echoes and noise triggers, recall punishes missed beats, and jitter punishes coincidental grids. The best stream wins, with hysteresis so the lock doesn't flicker. Once locked, every detector's dead time widens to ~45% of a beat, which removes echoes from the case or the table.
+
+**Amplitude** comes from the lift time: each beat is split into its sub-clicks (unlock, impulse, drop), each timed at half its own peak, and the gap from unlock to drop gives `A = LA / (2·sin(π·t/T))` with the movement's lift angle LA. The median over the window is shown.
 
 Ticks are timestamped on the audio thread against the sample clock, so timing isn't affected by UI jank. Each tick gets a beat index *n* and a side (tic/toc). Escapement then fits
 
@@ -74,12 +77,24 @@ src/
 tests/        detector + analysis tests
 ```
 
+## Tuning on real recordings
+
+The **Record 10 s clip** button in the Signal panel saves the raw input as a WAV file. Analyse it offline with exactly the app's pipeline:
+
+```bash
+npm run analyze-clip -- escapement-clip.wav [--bph 28800] [--lift 52]
+```
+
+It prints what each auto-tune detector heard, which one locked, and the resulting rate, beat error and amplitude. Recordings of awkward watches are very welcome as issues.
+
 ## Roadmap
 
 - [x] Rate, beat error, auto beat rate, paper trace
 - [x] Watch collection and measurement log, export/import
-- [ ] Amplitude (unlock→drop timing with per-watch lift angle)
-- [ ] Guided six-position test with averaged rate and delta
+- [x] Amplitude (unlock→drop timing with per-watch lift angle)
+- [x] Guided six-position test with averaged rate and delta
+- [x] Clip recorder and offline analyser
+- [ ] Tested on real watches with a contact pickup
 - [ ] Service-due hints from amplitude trend
 - [ ] Installable PWA / offline
 - [ ] Optional online collection: sign-in protected sync of watches and results across devices (local-first stays the default)

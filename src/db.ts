@@ -52,6 +52,8 @@ export interface Measurement {
   quality: number;
   notes: string;
   trace: TracePoint[];
+  /** Shared by the readings of one six-position test. */
+  testId?: string;
 }
 
 /**

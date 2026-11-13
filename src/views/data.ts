@@ -54,10 +54,10 @@ const csvCell = (v: unknown) => {
 async function exportCsv() {
   const watches = new Map((await db.watches.toArray()).map((w) => [w.id, w]));
   const ms = await db.measurements.orderBy('takenAt').toArray();
-  const header = ['watch', 'brand', 'reference', 'caliber', 'taken_at', 'position', 'wind', 'rate_s_per_day', 'beat_error_ms', 'amplitude_deg', 'bph', 'duration_s', 'ticks', 'clean_beats', 'jitter_ms', 'notes'];
+  const header = ['watch', 'brand', 'reference', 'caliber', 'taken_at', 'position', 'wind', 'rate_s_per_day', 'beat_error_ms', 'amplitude_deg', 'bph', 'duration_s', 'ticks', 'clean_beats', 'jitter_ms', 'test_id', 'notes'];
   const rows = ms.map((m) => {
     const w = watches.get(m.watchId);
-    return [w?.name, w?.brand, w?.reference, w?.caliber, new Date(m.takenAt).toISOString(), POSITIONS[m.position], WIND_STATES[m.wind], m.rate.toFixed(2), m.beatError?.toFixed(2), m.amplitude, m.bph, m.durationSec.toFixed(1), m.ticks, m.quality.toFixed(3), m.jitter.toFixed(3), m.notes];
+    return [w?.name, w?.brand, w?.reference, w?.caliber, new Date(m.takenAt).toISOString(), POSITIONS[m.position], WIND_STATES[m.wind], m.rate.toFixed(2), m.beatError?.toFixed(2), m.amplitude === null ? '' : Math.round(m.amplitude), m.bph, m.durationSec.toFixed(1), m.ticks, m.quality.toFixed(3), m.jitter.toFixed(3), m.testId ?? '', m.notes];
   });
   download(`escapement-measurements-${stamp()}.csv`, [header, ...rows].map((r) => r.map(csvCell).join(',')).join('\n'), 'text/csv');
 }

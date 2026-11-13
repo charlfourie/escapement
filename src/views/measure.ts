@@ -2,11 +2,12 @@ import { AudioEngine, listInputs, type EngineUpdate } from '../audio/engine';
 import { AUTO_BANK, SNIPPET_BIN_MS, SNIPPET_PRE_MS } from '../audio/detector';
 import { AutoLock, type LockState } from '../analysis/autolock';
 import type { SimParams } from '../audio/synth';
-import { analyze, downsample, STANDARD_BPH, type Analysis } from '../analysis/analyze';
+import { amplitudeFrom, analyze, downsample, STANDARD_BPH, type Analysis, type AmplitudeResult } from '../analysis/analyze';
+import { PositionTest, SETTLE_SEC, STEP_SEC } from './position-test';
 import { blankWatch, db, newId, POSITIONS, WIND_STATES, type Position, type Watch, type WindState } from '../db';
 import { loadPrefs, savePrefs } from '../prefs';
 import { drawTrace, drawWaveform } from '../ui/canvas';
-import { h, select, toast } from '../util/dom';
+import { downloadBlob, encodeWav, h, select, toast } from '../util/dom';
 import { beatErrorGrade, fmtBph, fmtDuration, fmtHz, fmtMs, fmtRate, gradeLabel, rateGrade } from '../util/format';
 
 const LIVE_WINDOW_SEC = 20;
@@ -14,6 +15,14 @@ const MAX_SEC = 180;
 const SPANS = [2, 5, 10, 20, 50];
 
 type State = 'idle' | 'starting' | 'running' | 'stopped';
+type Mode = 'single' | 'test';
+
+/** Healthy amplitude is roughly 250–310° dial up; under 200° usually means a service is due. */
+function amplitudeGrade(a: number): 'good' | 'ok' | 'bad' {
+  if (a >= 250 && a <= 330) return 'good';
+  if (a >= 200 && a <= 345) return 'ok';
+  return 'bad';
+}
 
 function readout(label: string, unit: string) {
   const value = h('span', { class: 'ro-value' }, '—');
@@ -47,7 +56,14 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
   let bphSetting = 0; // 0 = auto
   let state: State = 'idle';
   let times: number[] = [];
+  let lifts: Array<number | null> = [];
   let snippets: number[][] = [];
+  let liveAmp: AmplitudeResult | null = null;
+  let fullAmp: AmplitudeResult | null = null;
+  let mode: Mode = query.get('mode') === 'test' ? 'test' : 'single';
+  let stepLockedAt: number | null = null;
+  let finishingStep = false;
+  let recording = false;
   let autolock: AutoLock | null = null;
   let lock: LockState | null = null;
   let streamSnips: number[][][] = [];
@@ -82,6 +98,24 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
     },
   );
   const startBtn = h('button', { class: 'btn primary start', onclick: () => (state === 'running' || state === 'starting' ? void stop() : void start()) }, 'Start');
+  const modeBtns = (
+    [
+      ['single', 'Single reading'],
+      ['test', 'Six-position test'],
+    ] as Array<[Mode, string]>
+  ).map(([m, label]) =>
+    h(
+      'button',
+      {
+        type: 'button',
+        class: `seg${m === mode ? ' active' : ''}`,
+        'aria-pressed': String(m === mode),
+        onclick: () => void setMode(m),
+      },
+      label,
+    ),
+  );
+  const modeSwitch = h('div', { class: 'segmented', role: 'group', 'aria-label': 'Measuring mode' }, modeBtns);
 
   const toolbar = h(
     'div',
@@ -97,8 +131,6 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
   const roBE = readout('Beat error', 'ms');
   const roBph = readout('Beat rate', 'bph');
   const roAmp = readout('Amplitude', '°');
-  roAmp.sub.textContent = 'Coming in the next phase';
-  roAmp.el.classList.add('pending');
   const readouts = h('div', { class: 'readouts' }, roRate.el, roBE.el, roBph.el, roAmp.el);
 
   // ---------- trace ----------
@@ -171,6 +203,8 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
     },
   });
 
+  const recordBtn = h('button', { type: 'button', class: 'btn small', disabled: true, onclick: () => void recordClip() }, 'Record 10 s clip');
+
   const signalPanel = h(
     'section',
     { class: 'panel' },
@@ -181,6 +215,12 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
     triggerSlider,
     deviceField,
     h('dl', { class: 'stats' }, h('div', null, h('dt', null, 'Ticks'), stTicks), h('div', null, h('dt', null, 'Clean beats'), stQuality), h('div', null, h('dt', null, 'Jitter'), stJitter), h('div', null, h('dt', null, 'Elapsed'), stElapsed)),
+    h(
+      'div',
+      { class: 'record-row' },
+      recordBtn,
+      h('span', { class: 'muted small' }, 'Saves the raw input as a WAV file, handy for tuning detection on your setup.'),
+    ),
   );
   const wavePanel = h(
     'section',
@@ -231,6 +271,17 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
   // ---------- messages / save ----------
   const message = h('div', { class: 'message', hidden: true });
   const savePanel = h('section', { class: 'panel save', hidden: true });
+  const test = new PositionTest({
+    getWatches: () => watches,
+    getWatchId: () => watchId,
+    onSaved: async (id) => {
+      watchId = id;
+      savePrefs({ lastWatch: id });
+      await loadWatches();
+    },
+    onChange: () => renderState(),
+  });
+  test.el.hidden = mode !== 'test';
 
   const help = h(
     'details',
@@ -242,6 +293,8 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
       h('li', null, 'Find a quiet room. Lay the watch dial-up on a soft cloth with the caseback (or the lugs) touching your phone or laptop microphone.'),
       h('li', null, 'Better still, use a cheap piezo contact mic pressed against the case. It ignores room noise.'),
       h('li', null, 'Press Start. When dots form two tidy lines, give it 30–60 seconds, then press Stop and save.'),
+      h('li', null, 'Amplitude needs the right lift angle for accuracy. Set it on the watch (52° suits most movements; check the caliber on Ranfft DB).'),
+      h('li', null, 'For a full picture, use the six-position test: it measures each position in turn and works out the average rate and the spread between positions.'),
       h('li', null, 'Leave Auto-tune on: it tries every filter and trigger level at once and locks onto the cleanest beat. Setting the beat rate, if you know it, makes locking faster and more reliable.'),
       h('li', null, 'With Auto-tune off: scattered dots? Raise the trigger level. No ticks? Lower it, or move the mic closer.'),
       h('li', null, 'Choose the beat rate manually if auto-detect picks half the real rate (that happens when only every other tick is heard).'),
@@ -252,8 +305,10 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
     h(
       'div',
       { class: 'measure' },
+      modeSwitch,
       toolbar,
       message,
+      test.el,
       readouts,
       tracePanel,
       h('div', { class: 'two-col' }, wavePanel, signalPanel),
@@ -300,7 +355,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
   function onUpdate(u: EngineUpdate) {
     if (autolock) {
       for (const t of u.ticks) {
-        autolock.add(t.d, t.time);
+        autolock.add(t.d, t.time, t.lift);
         const s = (streamSnips[t.d] ??= []);
         s.push(t.envelope);
         if (s.length > 12) s.shift();
@@ -310,12 +365,16 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
     } else {
       for (const t of u.ticks) {
         times.push(t.time);
+        lifts.push(t.lift);
         snippets.push(t.envelope);
       }
       if (snippets.length > 12) snippets = snippets.slice(-12);
       if (times.length && times[times.length - 1] - times[0] > MAX_SEC) {
         const cutoff = times[times.length - 1] - MAX_SEC;
-        times = times.filter((t) => t >= cutoff);
+        let k = 0;
+        while (k < times.length && times[k] < cutoff) k++;
+        times = times.slice(k);
+        lifts = lifts.slice(k);
       }
     }
     const db_ = (v: number) => (v > 0 ? 20 * Math.log10(v) : -120);
@@ -331,7 +390,109 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
     if (!autolock) return;
     const idx = lock?.index ?? 0;
     times = autolock.streams[idx];
+    lifts = autolock.lifts[idx];
     snippets = streamSnips[idx] ?? [];
+  }
+
+  function liftAngle(): number {
+    return watches.find((w) => w.id === watchId)?.liftAngle || 52;
+  }
+
+  /** Amplitude from the lift times of ticks in the last `windowSec` seconds. */
+  function amplitudeOver(windowSec: number, bph: number): AmplitudeResult | null {
+    if (!times.length) return null;
+    const cutoff = times[times.length - 1] - windowSec;
+    const ls: number[] = [];
+    for (let i = times.length - 1; i >= 0 && times[i] >= cutoff; i--) {
+      const l = lifts[i];
+      if (l !== null && l !== undefined) ls.push(l);
+    }
+    return amplitudeFrom(ls, bph, liftAngle());
+  }
+
+  async function setMode(m: Mode) {
+    if (m === mode) return;
+    if (state === 'running' || state === 'starting') await stop(false);
+    mode = m;
+    modeBtns.forEach((b, i) => {
+      const on = (i === 0 ? 'single' : 'test') === m;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', String(on));
+    });
+    test.el.hidden = m !== 'test';
+    savePanel.hidden = true;
+    renderState();
+  }
+
+  async function recordClip() {
+    if (recording || state !== 'running') return;
+    recording = true;
+    const secs = 10;
+    let left = secs;
+    recordBtn.disabled = true;
+    recordBtn.textContent = `Recording… ${left} s`;
+    const tick = window.setInterval(() => {
+      left = Math.max(0, left - 1);
+      recordBtn.textContent = `Recording… ${left} s`;
+    }, 1000);
+    try {
+      const clip = await engine.record(secs);
+      const d = new Date();
+      const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`;
+      const w = watches.find((x) => x.id === watchId);
+      const tag = [w?.name, bphSetting ? `${bphSetting}bph` : ''].filter(Boolean).join('-').replace(/[^a-z0-9-]+/gi, '_');
+      downloadBlob(encodeWav(clip.samples, clip.sampleRate), `escapement-clip-${stamp}${tag ? `-${tag}` : ''}.wav`);
+      toast('Clip saved to your downloads');
+    } catch (err) {
+      toast(`Recording failed: ${(err as Error)?.message ?? err}`);
+    } finally {
+      clearInterval(tick);
+      recording = false;
+      recordBtn.textContent = 'Record 10 s clip';
+      recordBtn.disabled = state !== 'running';
+    }
+  }
+
+  /** In a six-position test: count locked-on time and finish the step when enough is in. */
+  function progressTest() {
+    if (mode !== 'test' || state !== 'running' || finishingStep || test.done) return;
+    if (!live) {
+      stepLockedAt = null;
+      test.setProgress('Waiting for the beat…', 0);
+      return;
+    }
+    const now = performance.now();
+    stepLockedAt ??= now;
+    const t = (now - stepLockedAt) / 1000;
+    if (t < SETTLE_SEC) {
+      test.setProgress(`Locked on, letting it settle… ${Math.ceil(SETTLE_SEC - t)} s`, t / (SETTLE_SEC + STEP_SEC));
+      return;
+    }
+    if (t < SETTLE_SEC + STEP_SEC) {
+      test.setProgress(`Measuring… ${Math.floor(t - SETTLE_SEC)} of ${STEP_SEC} s`, t / (SETTLE_SEC + STEP_SEC));
+      return;
+    }
+    void finishStep();
+  }
+
+  async function finishStep() {
+    finishingStep = true;
+    const position = test.current!;
+    const bph = analysisBph() ?? live?.bph ?? null;
+    const a = analyze(times, { bph, windowSec: STEP_SEC });
+    const amp = a ? amplitudeOver(STEP_SEC, a.bph) : null;
+    clearInterval(timer);
+    await engine.stop();
+    state = 'idle';
+    finishingStep = false;
+    if (a) {
+      test.complete({ position, analysis: a, amplitude: amp?.amplitude ?? null });
+      toast(test.done ? 'All positions done' : 'Position done. Move the watch for the next one.');
+    } else {
+      showMessage('Couldn’t get a clean reading in that position. Try it again.', 'error');
+    }
+    test.setRunning(false);
+    renderState();
   }
 
   /** Beat rate to analyse with: the user's setting, or what auto-lock found. */
@@ -357,10 +518,14 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
   }
 
   async function start() {
+    if (mode === 'test' && test.done) test.reset();
     state = 'starting';
     times = [];
+    lifts = [];
     snippets = [];
     live = full = null;
+    liveAmp = fullAmp = null;
+    stepLockedAt = null;
     autolock = prefs.autoTrigger ? new AutoLock(AUTO_BANK.length) : null;
     lock = null;
     streamSnips = [];
@@ -386,6 +551,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
     if (prefs.source === 'mic') void loadDevices();
     startedAt = performance.now();
     state = 'running';
+    if (mode === 'test') test.setRunning(true);
     renderState();
     timer = window.setInterval(update, 250);
   }
@@ -399,9 +565,18 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
     clearInterval(timer);
     await engine.stop();
     if (state !== 'running' && state !== 'starting') return;
+    if (mode === 'test') {
+      // Stopping mid-position abandons that position; it stays up next.
+      state = 'idle';
+      test.setRunning(false);
+      renderLockStatus();
+      renderState();
+      return;
+    }
     state = 'stopped';
     followStream();
     full = analyze(times, { bph: analysisBph(), windowSec: MAX_SEC });
+    fullAmp = full ? amplitudeOver(MAX_SEC, full.bph) : null;
     update(false);
     renderLockStatus();
     renderState();
@@ -428,11 +603,24 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
       if (!autolock || lock?.locked) {
         live = analyze(times, { bph: analysisBph(), windowSec: LIVE_WINDOW_SEC });
         full = analyze(times, { bph: live?.bph ?? analysisBph(), windowSec: MAX_SEC });
+        liveAmp = live ? amplitudeOver(LIVE_WINDOW_SEC, live.bph) : null;
       } else {
         live = full = null;
+        liveAmp = null;
       }
+      progressTest();
     }
     const r = state === 'stopped' ? full : live;
+    const amp = state === 'stopped' ? fullAmp : liveAmp;
+    if (r && amp) {
+      roAmp.value.textContent = String(Math.round(amp.amplitude));
+      roAmp.el.dataset.grade = amplitudeGrade(amp.amplitude);
+      roAmp.sub.textContent = `lift angle ${liftAngle()}°${amp.spread > 30 ? ' · unsteady' : ''}`;
+    } else {
+      roAmp.value.textContent = '—';
+      delete roAmp.el.dataset.grade;
+      roAmp.sub.textContent = r ? 'Can’t separate the clicks yet' : ' ';
+    }
     if (r) {
       const g = rateGrade(r.rate);
       roRate.value.textContent = fmtRate(r.rate);
@@ -475,7 +663,10 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
 
   function renderState() {
     const active = state === 'running' || state === 'starting';
-    startBtn.textContent = state === 'starting' ? 'Starting…' : active ? 'Stop' : state === 'stopped' ? 'Measure again' : 'Start';
+    const pos = test.current;
+    startBtn.textContent =
+      state === 'starting' ? 'Starting…' : active ? 'Stop' : mode === 'test' ? (pos ? `Start: ${POSITIONS[pos]}` : 'New test') : state === 'stopped' ? 'Measure again' : 'Start';
+    recordBtn.disabled = state !== 'running' || recording;
     startBtn.classList.toggle('stop', active);
     startBtn.disabled = state === 'starting';
     root.querySelector('.measure')?.classList.toggle('is-running', active);
@@ -542,7 +733,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
         bph: r!.bph,
         rate: r!.rate,
         beatError: r!.beatError,
-        amplitude: null,
+        amplitude: fullAmp?.amplitude ?? null,
         jitter: r!.jitter,
         ticks: r!.ticks,
         quality: r!.quality,
@@ -567,6 +758,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
         h('div', null, h('strong', null, fmtRate(r.rate)), ' s/d'),
         h('div', null, h('strong', null, fmtMs(r.beatError)), ' ms beat error'),
         h('div', null, h('strong', null, fmtBph(r.bph)), ' bph'),
+        fullAmp && h('div', null, h('strong', null, String(Math.round(fullAmp.amplitude))), '° amplitude'),
         h('div', null, h('strong', null, fmtDuration(r.duration)), ` · ${r.ticks} ticks`),
       ),
       h(

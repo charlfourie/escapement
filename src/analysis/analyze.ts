@@ -209,3 +209,28 @@ export function downsample(points: TracePoint[], max: number): TracePoint[] {
 
 /** COSC chronometer criteria for average daily rate. */
 export const COSC = { min: -4, max: 6 } as const;
+
+export interface AmplitudeResult {
+  /** Degrees. */
+  amplitude: number;
+  /** Spread (interquartile range) of the per-tick estimates, degrees. */
+  spread: number;
+  samples: number;
+}
+
+/**
+ * Balance amplitude from lift times (unlock → drop, seconds).
+ * The balance swings θ(t) = A·sin(2πt/T); crossing the lift angle LA takes
+ * t = (T/π)·asin(LA / 2A), so A = LA / (2·sin(π·t/T)) with T = 7200 / bph.
+ */
+export function amplitudeFrom(lifts: number[], bph: number, liftAngle: number): AmplitudeResult | null {
+  const T = 7200 / bph;
+  const amps = lifts
+    .filter((t) => t > 0 && t < T / 4)
+    .map((t) => liftAngle / (2 * Math.sin((Math.PI * t) / T)))
+    .filter((a) => a > 90 && a < 400)
+    .sort((a, b) => a - b);
+  if (amps.length < 8) return null;
+  const q = (p: number) => amps[Math.min(amps.length - 1, Math.floor(p * amps.length))];
+  return { amplitude: q(0.5), spread: q(0.75) - q(0.25), samples: amps.length };
+}

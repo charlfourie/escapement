@@ -97,6 +97,8 @@ export function scoreAnalysis(times: number[], a: Analysis, windowSec = EVAL_WIN
 
 export class AutoLock {
   readonly streams: number[][];
+  /** Lift time per tick, parallel to `streams`. */
+  readonly lifts: Array<Array<number | null>>;
   private state: LockState = { index: 0, bph: null, score: 0, locked: false };
   private lockedBph: number | null = null;
   private misses = 0;
@@ -104,10 +106,13 @@ export class AutoLock {
 
   constructor(streamCount: number) {
     this.streams = Array.from({ length: streamCount }, () => []);
+    this.lifts = Array.from({ length: streamCount }, () => []);
   }
 
-  add(stream: number, time: number): void {
-    this.streams[stream]?.push(time);
+  add(stream: number, time: number, lift: number | null = null): void {
+    if (!this.streams[stream]) return;
+    this.streams[stream].push(time);
+    this.lifts[stream].push(lift);
   }
 
   /** Drop ticks older than maxSec before the newest one. */
@@ -119,6 +124,7 @@ export class AutoLock {
         let k = 0;
         while (k < s.length && s[k] < cutoff) k++;
         this.streams[i] = s.slice(k);
+        this.lifts[i] = this.lifts[i].slice(k);
       }
     }
   }

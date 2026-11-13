@@ -53,3 +53,30 @@ describe('analysis on a simulated watch', () => {
     expect(liftTime(280, 52, 28800) * 1000).toBeCloseTo(7.4, 1);
   });
 });
+
+describe('amplitude', () => {
+  const cases: Array<Partial<SimParams>> = [
+    { bph: 28800, amplitude: 280 },
+    { bph: 28800, amplitude: 200 },
+    { bph: 21600, amplitude: 300, liftAngle: 50 },
+    { bph: 18000, amplitude: 230, noise: 0.008 },
+    { bph: 36000, amplitude: 260, liftAngle: 53 },
+  ];
+  for (const p of cases) {
+    it(`${p.bph} bph at ${p.amplitude}°`, async () => {
+      const { amplitudeFrom } = await import('../src/analysis/analyze');
+      const synth = new TickSynth(SR, p);
+      const det = new TickDetector(SR);
+      const buf = new Float32Array(128);
+      const lifts: number[] = [];
+      for (let i = 0; i < (15 * SR) / 128; i++) {
+        synth.render(buf);
+        for (const t of det.process(buf)) if (t.lift !== null) lifts.push(t.lift);
+      }
+      const r = amplitudeFrom(lifts, p.bph!, p.liftAngle ?? 52)!;
+      expect(r).not.toBeNull();
+      expect(Math.abs(r.amplitude - p.amplitude!)).toBeLessThan(8);
+      expect(r.spread).toBeLessThan(15);
+    });
+  }
+});

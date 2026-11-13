@@ -62,7 +62,7 @@ export function watchDetailView(root: HTMLElement, id: string): void {
     const table = () => {
       const tbody = h('tbody');
       for (const m of ms) {
-        const traceRow = h('tr', { class: 'trace-row', hidden: true }, h('td', { colspan: 8 }, h('canvas', { class: 'trace small' })));
+        const traceRow = h('tr', { class: 'trace-row', hidden: true }, h('td', { colspan: 9 }, h('canvas', { class: 'trace small' })));
         const row = h(
           'tr',
           {
@@ -78,6 +78,7 @@ export function watchDetailView(root: HTMLElement, id: string): void {
           h('td', { class: 'hide-sm' }, WIND_STATES[m.wind]),
           h('td', { class: 'num' }, h('span', { class: 'rate-pill', 'data-grade': rateGrade(m.rate) }, fmtRate(m.rate))),
           h('td', { class: 'num' }, fmtMs(m.beatError)),
+          h('td', { class: 'num hide-sm' }, m.amplitude === null ? '—' : `${Math.round(m.amplitude)}°`),
           h('td', { class: 'num hide-sm' }, fmtDuration(m.durationSec)),
           h('td', { class: 'hide-sm notes' }, m.notes),
           h(
@@ -109,7 +110,7 @@ export function watchDetailView(root: HTMLElement, id: string): void {
         h(
           'thead',
           null,
-          h('tr', null, h('th', null, 'Date'), h('th', null, 'Position'), h('th', { class: 'hide-sm' }, 'Wind'), h('th', { class: 'num' }, 's/d'), h('th', { class: 'num' }, 'BE ms'), h('th', { class: 'num hide-sm' }, 'Length'), h('th', { class: 'hide-sm' }, 'Notes'), h('th', null, '')),
+          h('tr', null, h('th', null, 'Date'), h('th', null, 'Position'), h('th', { class: 'hide-sm' }, 'Wind'), h('th', { class: 'num' }, 's/d'), h('th', { class: 'num' }, 'BE ms'), h('th', { class: 'num hide-sm' }, 'Amp'), h('th', { class: 'num hide-sm' }, 'Length'), h('th', { class: 'hide-sm' }, 'Notes'), h('th', null, '')),
         ),
         tbody,
       );

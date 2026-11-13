@@ -15,6 +15,11 @@ export interface TickEvent {
   peak: number;
   /** Envelope snippet: starts SNIPPET_PRE_MS before onset, SNIPPET_BIN_MS per bin, SNIPPET_MS long. */
   envelope: number[];
+  /**
+   * Seconds from the unlock click to the drop click (the balance's lift),
+   * or null when the clicks couldn't be told apart. Amplitude comes from this.
+   */
+  lift: number | null;
 }
 
 export interface DetectorSettings {
@@ -51,6 +56,16 @@ const LOOKBACK_MS = 16;
 const LOOKAHEAD_MS = 24;
 /** The onset is the first point above this fraction of the beat's peak. */
 const ONSET_FRACTION = 0.2;
+/** Each sub-click is timed where it crosses this fraction of its own peak. */
+const CLICK_EDGE = 0.5;
+/** A click has ended once the envelope falls below this fraction of its peak… */
+const CLICK_END = 0.45;
+/** …and a new one starts when it rises this much above the trough since. */
+const CLICK_RISE = 1.8;
+/** The drop must be at least this loud relative to the beat's loudest click. */
+const DROP_MIN = 0.3;
+const LIFT_MIN_MS = 0.8;
+const LIFT_MAX_MS = 25;
 
 class Biquad {
   private b0 = 0;
@@ -227,6 +242,60 @@ export class TickDetector {
       for (let j = i; j < Math.min(to, i + this.binSamples); j++) if (raw[j] > m) m = raw[j];
       bins.push(m);
     }
-    return { time: onsetFrame / this.sampleRate, peak: this.capturePeak, envelope: bins };
+    return { time: onsetFrame / this.sampleRate, peak: this.capturePeak, envelope: bins, lift: this.measureLift(raw, k, level) };
+  }
+
+  /**
+   * Split the beat into its sub-clicks (unlock, impulse, drop) and time the
+   * gap from the first to the last loud one. Each click is timed at the same
+   * fraction of its own peak, so loudness differences don't bias the gap.
+   */
+  private measureLift(raw: number[], start: number, level: number): number | null {
+    type Click = { start: number; peakIdx: number; peak: number };
+    const clicks: Click[] = [];
+    let cur: Click = { start, peakIdx: start, peak: raw[start] };
+    let inClick = true;
+    let trough = Infinity;
+    for (let i = start + 1; i < raw.length; i++) {
+      const e = raw[i];
+      if (inClick) {
+        if (e > cur.peak) {
+          cur.peak = e;
+          cur.peakIdx = i;
+        }
+        if (e < cur.peak * CLICK_END) {
+          clicks.push(cur);
+          inClick = false;
+          trough = e;
+        }
+      } else {
+        if (e < trough) trough = e;
+        if (e > level && e > trough * CLICK_RISE) {
+          cur = { start: i, peakIdx: i, peak: e };
+          inClick = true;
+        }
+      }
+    }
+    if (inClick) clicks.push(cur);
+    if (clicks.length < 2) return null;
+
+    const edge = (c: Click) => {
+      const thr = c.peak * CLICK_EDGE;
+      let j = c.peakIdx;
+      while (j > 0 && raw[j - 1] > thr && raw[j - 1] <= raw[j]) j--;
+      const a = j > 0 ? raw[j - 1] : 0;
+      const b = raw[j];
+      const frac = b !== a ? Math.min(1, Math.max(0, (thr - a) / (b - a))) : 1;
+      return (j - 1 + frac) / this.sampleRate;
+    };
+
+    const loudest = Math.max(...clicks.map((c) => c.peak));
+    const unlock = edge(clicks[0]);
+    for (let n = clicks.length - 1; n >= 1; n--) {
+      if (clicks[n].peak < loudest * DROP_MIN) continue;
+      const gap = edge(clicks[n]) - unlock;
+      if (gap * 1000 >= LIFT_MIN_MS && gap * 1000 <= LIFT_MAX_MS) return gap;
+    }
+    return null;
   }
 }
