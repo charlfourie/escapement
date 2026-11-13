@@ -80,6 +80,7 @@ tests/        detector + analysis tests
 - [ ] Guided six-position test with averaged rate and delta
 - [ ] Service-due hints from amplitude trend
 - [ ] Installable PWA / offline
+- [ ] Optional online collection: sign-in protected sync of watches and results across devices (local-first stays the default)
 
 ## Licence
 
