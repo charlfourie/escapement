@@ -1,11 +1,11 @@
 import { AI_MODELS, AiError, identifyWatch, loadAi, saveAi, type Identification } from '../ai/identify';
-import type { Watch } from '../db';
+import type { MovementSpecs, Watch } from '../db';
 import { h, photoUrl, resizeImage } from '../util/dom';
 import { fmtBph, ranfftUrl } from '../util/format';
 
 const MAX_PHOTOS = 4;
 
-type Field = 'name' | 'brand' | 'reference' | 'caliber' | 'bph' | 'liftAngle';
+type Field = 'name' | 'brand' | 'reference' | 'caliber' | 'bph' | 'liftAngle' | 'jewels' | 'size';
 
 const FIELD_LABELS: Record<Field, string> = {
   name: 'Name',
@@ -14,6 +14,8 @@ const FIELD_LABELS: Record<Field, string> = {
   caliber: 'Caliber',
   bph: 'Beat rate',
   liftAngle: 'Lift angle',
+  jewels: 'Jewels (movement)',
+  size: 'Size (movement)',
 };
 
 function suggested(id: Identification, f: Field): string | number | null {
@@ -92,7 +94,10 @@ export function aiSettingsBlock(onChange?: () => void): HTMLElement {
  * "Identify with AI" panel for the watch form. Calls `apply` with the fields
  * the user ticked; the form re-renders with them.
  */
-export function identifyPanel(getWatch: () => Watch, apply: (patch: Partial<Watch>, extraNotes: string, photo: Blob | null) => void): HTMLElement {
+export function identifyPanel(
+  getWatch: () => Watch,
+  apply: (patch: Partial<Watch>, extraNotes: string, photo: Blob | null, specs: MovementSpecs) => void,
+): HTMLElement {
   const photos: Blob[] = [];
   let busy = false;
   let controller: AbortController | null = null;
@@ -199,7 +204,7 @@ export function identifyPanel(getWatch: () => Watch, apply: (patch: Partial<Watc
 
   function renderResult(id: Identification) {
     const w = getWatch();
-    const current: Record<Field, string | number | null> = { name: w.name || null, brand: w.brand || null, reference: w.reference || null, caliber: w.caliber || null, bph: w.bph, liftAngle: w.liftAngle };
+    const current: Record<Field, string | number | null> = { name: w.name || null, brand: w.brand || null, reference: w.reference || null, caliber: w.caliber || null, bph: w.bph, liftAngle: w.liftAngle, jewels: null, size: null };
     const fields = (Object.keys(FIELD_LABELS) as Field[]).filter((f) => suggested(id, f) !== null && String(suggested(id, f)) !== String(current[f] ?? ''));
     const ticks = new Map<Field, HTMLInputElement>();
     const usePhoto = h('input', { type: 'checkbox', checked: !w.photo && photos.length > 0 });
@@ -253,12 +258,19 @@ export function identifyPanel(getWatch: () => Watch, apply: (patch: Partial<Watc
               class: 'btn primary',
               onclick: () => {
                 const patch: Partial<Watch> = {};
+                const specs: MovementSpecs = {};
                 for (const [f, cb] of ticks) {
                   if (!cb.checked) continue;
                   const v = suggested(id, f);
-                  if (f === 'bph' || f === 'liftAngle') (patch as Record<string, number>)[f] = Number(v);
+                  if (f === 'jewels') specs.jewels = Number(v);
+                  else if (f === 'size') specs.size = String(v);
+                  else if (f === 'bph' || f === 'liftAngle') (patch as Record<string, number>)[f] = Number(v);
                   else (patch as Record<string, string>)[f] = String(v);
                 }
+                // Documented beat rate and lift angle describe the movement too.
+                if (id.bph) specs.bph = id.bph;
+                if (id.liftAngle) specs.liftAngle = id.liftAngle;
+                if (id.brand) specs.maker = id.brand;
                 const notes = addNotes.checked
                   ? [
                       `Identified with AI (${id.confidence} confidence): ${id.summary}`,
@@ -269,7 +281,7 @@ export function identifyPanel(getWatch: () => Watch, apply: (patch: Partial<Watc
                       .filter(Boolean)
                       .join('\n')
                   : '';
-                apply(patch, notes, usePhoto.checked && photos.length ? photos[0] : null);
+                apply(patch, notes, usePhoto.checked && photos.length ? photos[0] : null, specs);
                 result.hidden = true;
               },
             },

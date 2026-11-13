@@ -1,5 +1,5 @@
 import { STANDARD_BPH } from '../analysis/analyze';
-import { blankWatch, db, type Watch } from '../db';
+import { blankWatch, db, upsertMovement, type MovementSpecs, type Watch } from '../db';
 import { dialGlyph, h, photoUrl, resizeImage, select, toast } from '../util/dom';
 import { fmtBph, fmtHz } from '../util/format';
 import { identifyPanel } from './identify-panel';
@@ -13,6 +13,8 @@ export function watchFormView(root: HTMLElement, id: string | null): void {
     }
     const w: Watch = existing ? { ...existing } : blankWatch();
     const formHost = h('div');
+    /** Movement specs found by AI identification, stored with the movement on save. */
+    let pendingSpecs: MovementSpecs = {};
 
     const renderForm = () => {
 
@@ -69,6 +71,7 @@ export function watchFormView(root: HTMLElement, id: string | null): void {
           w.name = w.name.trim();
           w.updatedAt = Date.now();
           await db.watches.put(w);
+          if (w.caliber.trim()) await upsertMovement(w.caliber, { maker: w.brand.trim(), bph: w.bph, ...pendingSpecs });
           toast(existing ? 'Watch updated' : 'Watch added');
           location.hash = `#/watches/${w.id}`;
         },
@@ -117,8 +120,9 @@ export function watchFormView(root: HTMLElement, id: string | null): void {
 
     const panel = identifyPanel(
       () => w,
-      (patch, notes, photo) => {
+      (patch, notes, photo, specs) => {
         Object.assign(w, patch);
+        pendingSpecs = { ...pendingSpecs, ...specs };
         if (notes) w.notes = w.notes.trim() ? `${w.notes.trim()}\n\n${notes}` : notes;
         if (photo) w.photo = photo;
         renderForm();

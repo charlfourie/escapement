@@ -54,9 +54,59 @@ export interface Measurement {
   trace: TracePoint[];
 }
 
+/**
+ * One entry per movement calibre, shared by every watch that uses it.
+ * Specs come from the user or from AI identification; Ranfft DB is linked
+ * for reference, never copied.
+ */
+export interface Movement {
+  /** Normalised calibre name, see movementId(). */
+  id: string;
+  caliber: string;
+  maker: string;
+  bph: number | null;
+  liftAngle: number | null;
+  jewels: number | null;
+  /** Free text, e.g. "25.6 mm" or "11½'''". */
+  size: string;
+  notes: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export const movementId = (caliber: string) => caliber.trim().toLowerCase().replace(/^cal(iber|ibre)?\.?\s*/, '').replace(/\s+/g, ' ');
+
+export type MovementSpecs = Partial<Pick<Movement, 'maker' | 'bph' | 'liftAngle' | 'jewels' | 'size'>>;
+
+/**
+ * Make sure a movement entry exists for this calibre. Existing values are
+ * kept; only empty ones are filled from `specs`.
+ */
+export async function upsertMovement(caliber: string, specs: MovementSpecs = {}): Promise<Movement | null> {
+  const id = movementId(caliber);
+  if (!id) return null;
+  const now = Date.now();
+  const existing = await db.movements.get(id);
+  const m: Movement = existing ?? { id, caliber: caliber.trim(), maker: '', bph: null, liftAngle: null, jewels: null, size: '', notes: '', createdAt: now, updatedAt: now };
+  let changed = !existing;
+  for (const k of ['maker', 'bph', 'liftAngle', 'jewels', 'size'] as const) {
+    const v = specs[k];
+    if (v !== undefined && v !== null && v !== '' && (m[k] === null || m[k] === '')) {
+      (m as unknown as Record<string, unknown>)[k] = v;
+      changed = true;
+    }
+  }
+  if (changed) {
+    m.updatedAt = now;
+    await db.movements.put(m);
+  }
+  return m;
+}
+
 class EscapementDB extends Dexie {
   watches!: EntityTable<Watch, 'id'>;
   measurements!: EntityTable<Measurement, 'id'>;
+  movements!: EntityTable<Movement, 'id'>;
 
   constructor() {
     super('escapement');
@@ -64,6 +114,18 @@ class EscapementDB extends Dexie {
       watches: 'id, name, updatedAt',
       measurements: 'id, watchId, takenAt, [watchId+takenAt]',
     });
+    this.version(2)
+      .stores({ movements: 'id, caliber, maker' })
+      .upgrade(async (tx) => {
+        // Seed the movement library from watches that already have a calibre.
+        const watches = (await tx.table('watches').toArray()) as Watch[];
+        const now = Date.now();
+        for (const w of watches) {
+          const id = movementId(w.caliber ?? '');
+          if (!id || (await tx.table('movements').get(id))) continue;
+          await tx.table('movements').put({ id, caliber: w.caliber.trim(), maker: w.brand ?? '', bph: w.bph, liftAngle: w.liftAngle ?? null, jewels: null, size: '', notes: '', createdAt: now, updatedAt: now } satisfies Movement);
+        }
+      });
   }
 }
 

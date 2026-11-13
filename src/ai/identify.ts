@@ -46,6 +46,9 @@ export interface Identification {
   caliber: string | null;
   bph: number | null;
   liftAngle: number | null;
+  jewels: number | null;
+  /** Movement size as text, e.g. "25.6 mm" or "11½'''". */
+  size: string | null;
   years: string | null;
   cautions: string[];
   alternatives: Array<{ name: string; reason: string }>;
@@ -61,7 +64,7 @@ How to work:
 - For movement specifications (beat rate, jewels, size, related calibres), Ranfft DB at ranfft.org is a strong source: look up the calibre there when you can.
 - Be honest about uncertainty. If the photos can't confirm something, leave that field null and lower the confidence. Never invent a reference or calibre number.
 - Note anything a collector should know, such as signs of a redial, replacement parts, a franken-watch, or a caseback that doesn't match the dial.
-- Give the movement's beat rate in vibrations per hour (bph) when the calibre is known, and its lift angle in degrees only if it is documented.
+- Give the movement's beat rate in vibrations per hour (bph), jewel count and diameter when the calibre is known, and its lift angle in degrees only if it is documented.
 - Suggest what extra photo or detail would settle any open question.
 
 When you're done, call record_identification exactly once. Keep the summary to two to four plain sentences.`;
@@ -81,6 +84,8 @@ const RECORD_TOOL = {
       caliber: { type: ['string', 'null'], description: 'Movement calibre, e.g. "4006A" or "ETA 2824-2".' },
       bph: { type: ['integer', 'null'], description: 'Beat rate in vibrations per hour, e.g. 21600.' },
       liftAngle: { type: ['number', 'null'], description: 'Lift angle in degrees, only if documented.' },
+      jewels: { type: ['integer', 'null'], description: 'Jewel count of the movement, if known.' },
+      size: { type: ['string', 'null'], description: 'Movement diameter, e.g. "25.6 mm" or "11½\'\'\'", if known.' },
       years: { type: ['string', 'null'], description: 'Production years, e.g. "1968–1976".' },
       cautions: { type: 'array', items: { type: 'string' } },
       alternatives: {
@@ -144,6 +149,8 @@ export function normalize(input: Record<string, unknown>, searched: Array<{ titl
     caliber: str(input.caliber),
     bph: num(input.bph),
     liftAngle: num(input.liftAngle),
+    jewels: num(input.jewels),
+    size: str(input.size),
     years: str(input.years),
     cautions: strList(input.cautions),
     alternatives: Array.isArray(input.alternatives)

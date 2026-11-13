@@ -1,4 +1,4 @@
-import { db, POSITIONS, WIND_STATES, type Measurement, type Watch } from '../db';
+import { db, POSITIONS, WIND_STATES, type Measurement, type Movement, type Watch } from '../db';
 import { h, toast } from '../util/dom';
 import { aiSettingsBlock } from './identify-panel';
 
@@ -8,6 +8,8 @@ interface ExportFile {
   exportedAt: string;
   watches: Array<Omit<Watch, 'photo'> & { photo: string | null }>;
   measurements: Measurement[];
+  /** Added in v0.2; older backups don't have it. */
+  movements?: Movement[];
 }
 
 const blobToDataUrl = (b: Blob) =>
@@ -39,6 +41,7 @@ async function exportJson() {
     exportedAt: new Date().toISOString(),
     watches: await Promise.all(watches.map(async (w) => ({ ...w, photo: w.photo ? await blobToDataUrl(w.photo) : null }))),
     measurements: await db.measurements.toArray(),
+    movements: await db.movements.toArray(),
   };
   download(`escapement-backup-${stamp()}.json`, JSON.stringify(file), 'application/json');
 }
@@ -63,11 +66,13 @@ async function importJson(file: File): Promise<string> {
   const data = JSON.parse(await file.text()) as ExportFile;
   if (data?.app !== 'escapement' || !Array.isArray(data.watches) || !Array.isArray(data.measurements)) throw new Error('Not a Escapement backup file');
   const watches: Watch[] = await Promise.all(data.watches.map(async (w) => ({ ...w, photo: w.photo ? await dataUrlToBlob(w.photo) : null })));
-  await db.transaction('rw', db.watches, db.measurements, async () => {
+  const movements = Array.isArray(data.movements) ? data.movements : [];
+  await db.transaction('rw', db.watches, db.measurements, db.movements, async () => {
     await db.watches.bulkPut(watches);
     await db.measurements.bulkPut(data.measurements);
+    await db.movements.bulkPut(movements);
   });
-  return `Imported ${watches.length} watches and ${data.measurements.length} measurements`;
+  return `Imported ${watches.length} watches, ${data.measurements.length} measurements and ${movements.length} movements`;
 }
 
 export function dataView(root: HTMLElement): void {
@@ -89,7 +94,7 @@ export function dataView(root: HTMLElement): void {
   });
 
   async function refresh() {
-    const [w, m] = await Promise.all([db.watches.count(), db.measurements.count()]);
+    const [w, m, mv] = await Promise.all([db.watches.count(), db.measurements.count(), db.movements.count()]);
     let usage = '';
     try {
       const est = await navigator.storage?.estimate?.();
@@ -97,7 +102,7 @@ export function dataView(root: HTMLElement): void {
     } catch {
       /* ignore */
     }
-    counts.textContent = `${w} watch${w === 1 ? '' : 'es'}, ${m} measurement${m === 1 ? '' : 's'} stored in this browser${usage}.`;
+    counts.textContent = `${w} watch${w === 1 ? '' : 'es'}, ${m} measurement${m === 1 ? '' : 's'} and ${mv} movement${mv === 1 ? '' : 's'} stored in this browser${usage}.`;
   }
 
   root.append(

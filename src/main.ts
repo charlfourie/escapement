@@ -5,6 +5,7 @@ import { watchesView } from './views/watches';
 import { watchFormView } from './views/watch-form';
 import { watchDetailView } from './views/watch-detail';
 import { dataView } from './views/data';
+import { movementDetailView, movementsView } from './views/movements';
 
 /** Set to your public repo URL to show a source link in the footer. */
 const REPO_URL = 'https://github.com/charlfourie/escapement';
@@ -18,6 +19,8 @@ const routes: Route[] = [
   [/^\/watches\/([^/]+)\/edit$/, (r, m) => watchFormView(r, m[1]), 'watches'],
   [/^\/watches\/([^/]+)$/, (r, m) => watchDetailView(r, m[1]), 'watches'],
   [/^\/watches$/, (r) => watchesView(r), 'watches'],
+  [/^\/movements\/(.+)$/, (r, m) => movementDetailView(r, m[1]), 'movements'],
+  [/^\/movements$/, (r) => movementsView(r), 'movements'],
   [/^\/data$/, (r) => dataView(r), 'data'],
 ];
 
@@ -34,6 +37,7 @@ const logo = () => {
 const navLinks = [
   ['measure', '#/measure', 'Measure'],
   ['watches', '#/watches', 'Watches'],
+  ['movements', '#/movements', 'Movements'],
   ['data', '#/data', 'Data'],
 ] as const;
 
