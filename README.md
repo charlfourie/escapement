@@ -38,7 +38,7 @@ To set it up on your own Vercel deployment:
    | `OWNER_GITHUB` | your GitHub username, the only account allowed in |
    | `SESSION_SECRET` | a long random string, e.g. `openssl rand -base64 48` |
 
-How it works: small Vercel Functions in `api/` handle sign-in (a signed, HttpOnly session cookie; no database) and sync. Each record is a JSON document in the private store, and deletions leave a tombstone so they reach other devices. The app tracks local changes with IndexedDB hooks, pushes them a couple of seconds after each change, and pulls whatever changed online since the last sync. The newer version wins.
+How it works: small Vercel Functions in `api/` handle sign-in (a signed, HttpOnly session cookie; no database) and sync. Each record is a JSON document in the private store, and deletions leave a tombstone so they reach other devices. The app tracks local changes with IndexedDB hooks and keeps them on the device until you press **Sync** (in the top bar or on the Data page); a sync pushes them and pulls whatever changed online since the last sync. Sync never runs on a timer, because each one lists the Blob store and that counts against Vercel Blob's advanced-operation quota. The newer version wins.
 
 ## How it works
 
@@ -134,7 +134,7 @@ It prints what each auto-tune detector heard, which one locked, and the resultin
 - [ ] Tested on real watches with a contact pickup
 - [ ] Service-due hints from amplitude trend
 - [ ] Installable PWA / offline
-- [x] Optional online collection: GitHub sign-in, automatic sync of watches, photos and readings across devices (local-first stays the default)
+- [x] Optional online collection: GitHub sign-in, manual sync of watches, photos and readings across devices (local-first stays the default)
 - [ ] Public share page for chosen watches
 
 ## Licence

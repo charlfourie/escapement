@@ -10,15 +10,23 @@ const ago = (t: number | null) => {
   return new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 
-/** Small status pill for the top bar; only shown when signed in. */
+/** Sync button for the top bar; only shown when signed in. Syncing only happens when it's pressed. */
 export function syncChip(): HTMLElement {
-  const el = h('a', { class: 'sync-chip', href: '#/data', hidden: true });
+  const el = h('button', { type: 'button', class: 'sync-chip', hidden: true, onclick: () => void syncNow() }) as HTMLButtonElement;
   onSyncState((s) => {
     el.hidden = !s.login;
-    const label: Partial<Record<SyncState['status'], string>> = { idle: s.pending ? 'Changes pending' : 'Synced', syncing: 'Syncing…', error: 'Sync paused', offline: 'Offline' };
-    el.textContent = label[s.status] ?? '';
+    const label: Partial<Record<SyncState['status'], string>> = {
+      idle: s.pending ? `Sync ${s.pending} change${s.pending === 1 ? '' : 's'}` : 'Sync',
+      syncing: 'Syncing…',
+      error: 'Sync failed, retry',
+      offline: 'Offline',
+    };
+    el.textContent = label[s.status] ?? 'Sync';
     el.dataset.status = s.status;
-    el.title = s.error ?? `Online collection · last synced ${ago(s.lastSync)}`;
+    el.dataset.pending = s.pending ? '1' : '';
+    el.disabled = s.status === 'syncing';
+    el.title = s.error ?? `Sync with your online collection · last synced ${ago(s.lastSync)}`;
+    el.setAttribute('aria-label', `${el.textContent}. Last synced ${ago(s.lastSync)}`);
   });
   return el;
 }
@@ -51,9 +59,9 @@ export function syncPanel(): HTMLElement {
       return;
     }
     const statusText: Record<string, string> = {
-      idle: s.pending ? `${s.pending} change${s.pending === 1 ? '' : 's'} waiting to sync` : 'Up to date',
+      idle: s.pending ? `${s.pending} change${s.pending === 1 ? '' : 's'} waiting to sync` : 'Nothing waiting to sync',
       syncing: 'Syncing…',
-      offline: 'Offline. Changes will sync when you’re back online.',
+      offline: 'Offline. Press Sync once you’re back online.',
       error: `Sync paused: ${s.error ?? 'unknown error'}`,
     };
     body.replaceChildren(
@@ -64,7 +72,7 @@ export function syncPanel(): HTMLElement {
         h('div', null, h('dt', null, 'Status'), h('dd', { 'data-status': s.status }, statusText[s.status] ?? s.status)),
         h('div', null, h('dt', null, 'Last synced'), h('dd', null, ago(s.lastSync))),
       ),
-      h('p', { class: 'muted small' }, 'Changes sync automatically a couple of seconds after you make them, and every minute while the app is open. Everything still works offline.'),
+      h('p', { class: 'muted small' }, 'Syncing only happens when you press Sync, here or in the top bar. Changes wait on this device until then, and everything still works offline.'),
       h(
         'div',
         { class: 'actions' },

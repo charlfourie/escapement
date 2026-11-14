@@ -241,8 +241,10 @@ canvas.wave { width: 100%; height: 150px; display: block; background: var(--bg);
 
 /* sync */
 .topbar-right { display: flex; align-items: center; gap: 10px; }
-.sync-chip { font: 0.75rem var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; white-space: nowrap; }
-.sync-chip:hover { text-decoration: none; color: var(--text); }
+.sync-chip { font: 0.75rem var(--mono); color: var(--muted); background: none; border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; white-space: nowrap; cursor: pointer; }
+.sync-chip:hover:not(:disabled) { text-decoration: none; color: var(--text); border-color: var(--muted); }
+.sync-chip:disabled { cursor: default; }
+.sync-chip[data-pending='1']::before { background: var(--ok); }
 .sync-chip::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--good); margin-right: 6px; vertical-align: 1px; }
 .sync-chip[data-status='syncing']::before { background: var(--ok); }
 .sync-chip[data-status='error']::before, .sync-chip[data-status='offline']::before { background: var(--bad); }
@@ -335,8 +337,9 @@ canvas.wave { width: 100%; height: 150px; display: block; background: var(--bg);
   .nav a { padding: 6px 7px; font-size: 0.9rem; }
   .brand span { display: none; }
   .nav-lab { display: none; }
-  .sync-chip { font-size: 0; padding: 4px; line-height: 0; }
-  .sync-chip::before { margin-right: 0; vertical-align: 0; }
+  .sync-chip { font-size: 0; padding: 5px 9px; line-height: 1; }
+  .sync-chip::before { margin-right: 5px; vertical-align: 2px; }
+  .sync-chip::after { content: '↻'; font-size: 0.95rem; color: var(--text); }
   .topbar-right { gap: 4px; }
   .nav { gap: 0; }
   .ro-value { font-size: 1.7rem; }

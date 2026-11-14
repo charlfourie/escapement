@@ -1,7 +1,9 @@
 /**
- * Automatic sync between this browser's local database and the online
+ * Manual sync between this browser's local database and the online
  * collection (see /api). Local-first: the app always reads and writes
- * IndexedDB; sync runs in the background.
+ * IndexedDB; changes are only sent or fetched when you press Sync (or
+ * right after signing in). Each sync lists the online store, which counts
+ * against Vercel Blob's advanced-operation quota, so it never runs on a timer.
  *
  * Change tracking: Dexie hooks note every created, updated or deleted record
  * in a small "dirty" map. A push sends the current local version of each dirty
@@ -28,8 +30,6 @@ export interface SyncState {
 const META_KEY = 'escapement:sync';
 const DIRTY_KEY = 'escapement:sync-dirty';
 const BATCH = 20;
-const PERIOD_MS = 60_000;
-const DEBOUNCE_MS = 2_000;
 
 interface Meta {
   lastPull: number;
@@ -83,7 +83,6 @@ function markDirty(kind: Kind, id: string) {
   dirty[k] = (dirty[k] ?? 0) + 1;
   saveDirty();
   set({});
-  scheduleSync();
 }
 
 // ---------------------------------------------------------------- hooks
@@ -233,13 +232,6 @@ async function markEverythingDirty() {
 // ---------------------------------------------------------------- driver
 let running: Promise<void> | null = null;
 let again = false;
-let debounce = 0;
-
-export function scheduleSync(delay = DEBOUNCE_MS) {
-  if (!state.login) return;
-  clearTimeout(debounce);
-  debounce = setTimeout(() => void syncNow(), delay) as unknown as number;
-}
 
 export async function syncNow(): Promise<void> {
   if (!state.login) return;
@@ -292,10 +284,8 @@ export async function initSync(): Promise<void> {
   } catch {
     return set({ status: 'unavailable' });
   }
-  void syncNow();
-  window.setInterval(() => document.visibilityState === 'visible' && void syncNow(), PERIOD_MS);
-  document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && scheduleSync(500));
-  window.addEventListener('online', () => scheduleSync(500));
+  // Sync on its own only once, straight after a fresh sign-in; otherwise wait for the Sync button.
+  if (location.hash.includes('sync=signed-in')) void syncNow();
 }
 
 /** Record a confirmed sign-in (from /api/me). Exported for tests. */
