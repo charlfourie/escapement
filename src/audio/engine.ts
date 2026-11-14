@@ -22,8 +22,23 @@ export class AudioEngine {
   private node: AudioWorkletNode | null = null;
   private stream: MediaStream | null = null;
   private monitor: GainNode | null = null;
+  private source: AudioNode | null = null;
   onUpdate: ((u: EngineUpdate) => void) | null = null;
   private clipWaiter: { resolve: (c: Clip) => void; reject: (e: Error) => void } | null = null;
+
+  /** The raw input signal, for analysers (mic source, or the simulator's output). */
+  get input(): AudioNode | null {
+    return this.source;
+  }
+
+  get context(): AudioContext | null {
+    return this.ctx;
+  }
+
+  /** The live microphone track, to inspect what the browser actually applied. */
+  get track(): MediaStreamTrack | null {
+    return this.stream?.getAudioTracks()[0] ?? null;
+  }
 
   get running(): boolean {
     return this.ctx !== null;
@@ -62,7 +77,13 @@ export class AudioEngine {
           this.clipWaiter = null;
         }
       };
-      if (this.stream) ctx.createMediaStreamSource(this.stream).connect(node);
+      if (this.stream) {
+        const src = ctx.createMediaStreamSource(this.stream);
+        src.connect(node);
+        this.source = src;
+      } else {
+        this.source = node; // simulated input: the worklet's output is the signal
+      }
       const monitor = ctx.createGain();
       monitor.gain.value = 0;
       node.connect(monitor).connect(ctx.destination);
@@ -114,6 +135,7 @@ export class AudioEngine {
     this.stream = null;
     this.node?.disconnect();
     this.node = null;
+    this.source = null;
     this.monitor = null;
     const ctx = this.ctx;
     this.ctx = null;

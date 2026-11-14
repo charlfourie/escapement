@@ -77,6 +77,16 @@ src/
 tests/        detector + analysis tests
 ```
 
+## Pickup Lab
+
+A companion page at **/lab** for checking a pickup or microphone before measuring a watch. It lists every input the browser can see and shows whether the browser left voice processing on. It draws the live level, spectrum and waveform, and runs three short tests:
+
+1. **Background noise:** the noise floor and mains hum.
+2. **Tap test:** proves the pickup is actually feeding this input.
+3. **Watch test:** locks onto a running watch and reports signal-to-noise, clean beats, rate, beat error, amplitude and the best filter.
+
+You get a verdict and advice for each input, with a table to compare them. **Use this input in Escapement** carries the winner over to the main app.
+
 ## Tuning on real recordings
 
 The **Record 10 s clip** button in the Signal panel saves the raw input as a WAV file. Analyse it offline with exactly the app's pipeline:
@@ -94,6 +104,7 @@ It prints what each auto-tune detector heard, which one locked, and the resultin
 - [x] Amplitude (unlock→drop timing with per-watch lift angle)
 - [x] Guided six-position test with averaged rate and delta
 - [x] Clip recorder and offline analyser
+- [x] Pickup Lab for testing inputs
 - [ ] Tested on real watches with a contact pickup
 - [ ] Service-due hints from amplitude trend
 - [ ] Installable PWA / offline

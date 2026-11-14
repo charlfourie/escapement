@@ -221,6 +221,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
       recordBtn,
       h('span', { class: 'muted small' }, 'Saves the raw input as a WAV file, handy for tuning detection on your setup.'),
     ),
+    h('p', { class: 'small' }, h('a', { href: '/lab' }, 'New pickup or mic? Check it in Pickup Lab →')),
   );
   const wavePanel = h(
     'section',
