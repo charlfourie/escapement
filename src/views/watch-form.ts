@@ -1,5 +1,5 @@
 import { STANDARD_BPH } from '../analysis/analyze';
-import { blankWatch, db, upsertMovement, type MovementSpecs, type Watch } from '../db';
+import { blankWatch, db, isTimegraphable, MOVEMENT_TYPES, upsertMovement, type MovementSpecs, type MovementType, type Watch } from '../db';
 import { dialGlyph, h, photoUrl, resizeImage, select, toast } from '../util/dom';
 import { fmtBph, fmtHz } from '../util/format';
 import { identifyPanel } from './identify-panel';
@@ -89,13 +89,24 @@ export function watchFormView(root: HTMLElement, id: string | null): void {
         text('name', 'Name', 'e.g. Speedmaster Professional', true),
         text('brand', 'Brand', 'e.g. Omega'),
         text('reference', 'Reference', 'e.g. 310.30.42.50.01.001'),
+        h(
+          'label',
+          { class: 'field' },
+          h('span', null, 'Movement type'),
+          select<string>([['', 'Not sure'], ...(Object.entries(MOVEMENT_TYPES) as Array<[MovementType, string]>)], w.movementType ?? '', (v) => {
+            w.movementType = (v || undefined) as MovementType | undefined;
+            renderForm(); // beat rate and lift angle only apply to mechanical watches
+          }),
+        ),
         text('caliber', 'Caliber', 'e.g. 3861'),
+        isTimegraphable(w) &&
         h(
           'label',
           { class: 'field' },
           h('span', null, 'Beat rate'),
           select<number>([[0, 'Unknown (auto-detect)'], ...[...new Set([...STANDARD_BPH, ...(w.bph ? [w.bph] : [])])].sort((x, y) => x - y).map((b): [number, string] => [b, `${fmtBph(b)} bph · ${fmtHz(b)}`])], w.bph ?? 0, (v) => (w.bph = Number(v) || null)),
         ),
+        isTimegraphable(w) &&
         h(
           'label',
           { class: 'field' },
@@ -103,6 +114,7 @@ export function watchFormView(root: HTMLElement, id: string | null): void {
           h('input', { type: 'number', min: 30, max: 70, step: 1, value: w.liftAngle, oninput: (e: Event) => (w.liftAngle = Number((e.target as HTMLInputElement).value) || 52) }),
           h('small', { class: 'muted' }, 'Used for amplitude. 52° fits most movements.'),
         ),
+        !isTimegraphable(w) && h('p', { class: 'muted small wide' }, 'A timegrapher can’t read quartz watches. Track this one with time checks on its page instead.'),
         date('purchaseDate', 'Purchased'),
         date('lastService', 'Last serviced'),
         h(

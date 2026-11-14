@@ -18,9 +18,28 @@ export const WIND_STATES: Record<WindState, string> = {
   unknown: 'Not noted',
 };
 
+export type MovementType = 'automatic' | 'manual' | 'quartz' | 'solar' | 'kinetic' | 'spring-drive' | 'other';
+export const MOVEMENT_TYPES: Record<MovementType, string> = {
+  automatic: 'Automatic',
+  manual: 'Hand-wound',
+  quartz: 'Quartz',
+  solar: 'Solar quartz (Eco-Drive, etc.)',
+  kinetic: 'Kinetic / automatic quartz',
+  'spring-drive': 'Spring Drive',
+  other: 'Other',
+};
+
+/**
+ * Can a timegrapher read it? Quartz-regulated movements (Spring Drive too)
+ * have no balance to listen to, so they're tracked with time checks instead.
+ */
+export const isTimegraphable = (w: Pick<Watch, 'movementType'>) => !w.movementType || w.movementType === 'automatic' || w.movementType === 'manual' || w.movementType === 'other';
+
 export interface Watch {
   id: string;
   name: string;
+  /** Older records have none: treated as mechanical. */
+  movementType?: MovementType;
   brand: string;
   reference: string;
   caliber: string;
@@ -105,10 +124,30 @@ export async function upsertMovement(caliber: string, specs: MovementSpecs = {})
   return m;
 }
 
+/**
+ * A time check: the watch's offset from reference time at a moment. A run of
+ * checks since the watch was last set gives its real-world drift.
+ */
+export interface TimeCheck {
+  id: string;
+  watchId: string;
+  /** Reference time of the check (ms). */
+  at: number;
+  /** Seconds the watch is ahead (+) or behind (−) reference time. */
+  offset: number;
+  /** The watch was set to the right time just now; starts a new series. */
+  reset: boolean;
+  /** 'internet' when the reference came from the server clock, else 'device'. */
+  source: 'internet' | 'device';
+  notes: string;
+  updatedAt: number;
+}
+
 class EscapementDB extends Dexie {
   watches!: EntityTable<Watch, 'id'>;
   measurements!: EntityTable<Measurement, 'id'>;
   movements!: EntityTable<Movement, 'id'>;
+  checks!: EntityTable<TimeCheck, 'id'>;
 
   constructor() {
     super('escapement');
@@ -128,6 +167,7 @@ class EscapementDB extends Dexie {
           await tx.table('movements').put({ id, caliber: w.caliber.trim(), maker: w.brand ?? '', bph: w.bph, liftAngle: w.liftAngle ?? null, jewels: null, size: '', notes: '', createdAt: now, updatedAt: now } satisfies Movement);
         }
       });
+    this.version(3).stores({ checks: 'id, watchId, at, [watchId+at]' });
   }
 }
 
@@ -165,9 +205,14 @@ export async function watchMeasurements(watchId: string): Promise<Measurement[]>
     .toArray();
 }
 
+export async function watchChecks(watchId: string): Promise<TimeCheck[]> {
+  return db.checks.where('[watchId+at]').between([watchId, Dexie.minKey], [watchId, Dexie.maxKey]).toArray();
+}
+
 export async function deleteWatch(id: string): Promise<void> {
-  await db.transaction('rw', db.watches, db.measurements, async () => {
+  await db.transaction('rw', db.watches, db.measurements, db.checks, async () => {
     await db.measurements.where('watchId').equals(id).delete();
+    await db.checks.where('watchId').equals(id).delete();
     await db.watches.delete(id);
   });
 }

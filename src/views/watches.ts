@@ -1,4 +1,5 @@
-import { db, type Measurement, type Watch } from '../db';
+import { db, isTimegraphable, MOVEMENT_TYPES, type Measurement, type TimeCheck, type Watch } from '../db';
+import { driftGrade, driftOf, fmtDrift } from './time-check';
 import { dialGlyph, h, photoUrl } from '../util/dom';
 import { fmtDate, fmtMs, fmtRate, rateGrade } from '../util/format';
 
@@ -18,7 +19,9 @@ export function watchesView(root: HTMLElement): void {
   );
 
   void (async () => {
-    const [watches, measurements] = await Promise.all([db.watches.orderBy('name').toArray(), db.measurements.orderBy('takenAt').reverse().toArray()]);
+    const [watches, measurements, checks] = await Promise.all([db.watches.orderBy('name').toArray(), db.measurements.orderBy('takenAt').reverse().toArray(), db.checks.toArray()]);
+    const checksBy = new Map<string, TimeCheck[]>();
+    for (const c of checks) checksBy.set(c.watchId, [...(checksBy.get(c.watchId) ?? []), c]);
     const byWatch = new Map<string, Measurement[]>();
     for (const m of measurements) {
       if (!byWatch.has(m.watchId)) byWatch.set(m.watchId, []);
@@ -43,6 +46,8 @@ export function watchesView(root: HTMLElement): void {
       ...watches.map((w) => {
         const ms = byWatch.get(w.id) ?? [];
         const latest = ms[0];
+        const drift = driftOf(checksBy.get(w.id) ?? []);
+        const quartz = !isTimegraphable(w);
         const meta = [w.brand, w.reference].filter(Boolean).join(' · ');
         return h(
           'a',
@@ -54,7 +59,11 @@ export function watchesView(root: HTMLElement): void {
             h('h3', null, w.name),
             meta && h('p', { class: 'muted small' }, meta),
             w.caliber && h('p', { class: 'muted small' }, `Cal. ${w.caliber}`),
-            latest
+            quartz && drift
+              ? h('div', { class: 'latest' }, h('span', { class: 'rate-pill', 'data-grade': driftGrade(drift, true) }, fmtDrift(drift, true)), h('span', { class: 'muted small' }, `${MOVEMENT_TYPES[w.movementType!]} · ${drift.checks} checks`))
+              : quartz
+                ? h('div', { class: 'latest muted small' }, `${MOVEMENT_TYPES[w.movementType!]} · no time checks yet`)
+                : latest
               ? h(
                   'div',
                   { class: 'latest' },
@@ -62,7 +71,7 @@ export function watchesView(root: HTMLElement): void {
                   h('span', { class: 'muted small' }, `${fmtMs(latest.beatError)} ms · ${fmtDate(latest.takenAt)}`),
                 )
               : h('div', { class: 'latest muted small' }, 'Not measured yet'),
-            h('p', { class: 'muted small count' }, `${ms.length} measurement${ms.length === 1 ? '' : 's'}`),
+            !(quartz && !ms.length) && h('p', { class: 'muted small count' }, `${ms.length} measurement${ms.length === 1 ? '' : 's'}`),
           ),
         );
       }),

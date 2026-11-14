@@ -10,7 +10,7 @@
  */
 import { del, get, list, put } from '@vercel/blob';
 
-export const KINDS = ['watches', 'measurements', 'movements'] as const;
+export const KINDS = ['watches', 'measurements', 'movements', 'checks'] as const;
 export type Kind = (typeof KINDS)[number];
 export type Doc = Record<string, unknown> & { id: string };
 
@@ -85,7 +85,7 @@ export async function changesSince(since: number): Promise<Changes> {
   const [recs, dels] = await Promise.all([listAll('records/'), listAll('deleted/')]);
   const changed = recs.filter((b) => b.uploadedAt.getTime() > since);
   const docs = await mapLimit(changed, 8, async (b) => ({ where: parsePath(b.pathname, 'records'), doc: await readJson(b.pathname) }));
-  const records: Record<Kind, Doc[]> = { watches: [], measurements: [], movements: [] };
+  const records: Record<Kind, Doc[]> = { watches: [], measurements: [], movements: [], checks: [] };
   for (const d of docs) if (d.where && d.doc) records[d.where.kind].push(d.doc);
   const deletions = dels
     .filter((b) => b.uploadedAt.getTime() > since)

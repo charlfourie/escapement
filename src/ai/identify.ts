@@ -44,6 +44,7 @@ export interface Identification {
   model: string | null;
   reference: string | null;
   caliber: string | null;
+  movementType: 'automatic' | 'manual' | 'quartz' | 'solar' | 'kinetic' | 'spring-drive' | null;
   bph: number | null;
   liftAngle: number | null;
   jewels: number | null;
@@ -64,6 +65,7 @@ How to work:
 - For movement specifications (beat rate, jewels, size, related calibres), Ranfft DB at ranfft.org is a strong source: look up the calibre there when you can.
 - Be honest about uncertainty. If the photos can't confirm something, leave that field null and lower the confidence. Never invent a reference or calibre number.
 - Note anything a collector should know, such as signs of a redial, replacement parts, a franken-watch, or a caseback that doesn't match the dial.
+- Say whether the movement is automatic, hand-wound, quartz, solar quartz, kinetic or Spring Drive.
 - Give the movement's beat rate in vibrations per hour (bph), jewel count and diameter when the calibre is known, and its lift angle in degrees only if it is documented.
 - Suggest what extra photo or detail would settle any open question.
 
@@ -82,7 +84,8 @@ const RECORD_TOOL = {
       model: { type: ['string', 'null'], description: 'Model or line name.' },
       reference: { type: ['string', 'null'] },
       caliber: { type: ['string', 'null'], description: 'Movement calibre, e.g. "4006A" or "ETA 2824-2".' },
-      bph: { type: ['integer', 'null'], description: 'Beat rate in vibrations per hour, e.g. 21600.' },
+      movementType: { type: ['string', 'null'], enum: ['automatic', 'manual', 'quartz', 'solar', 'kinetic', 'spring-drive', null], description: 'Kind of movement: automatic, manual (hand-wound), quartz, solar (light-powered quartz), kinetic (automatic quartz) or spring-drive.' },
+      bph: { type: ['integer', 'null'], description: 'Beat rate in vibrations per hour, e.g. 21600. Null for quartz.' },
       liftAngle: { type: ['number', 'null'], description: 'Lift angle in degrees, only if documented.' },
       jewels: { type: ['integer', 'null'], description: 'Jewel count of the movement, if known.' },
       size: { type: ['string', 'null'], description: 'Movement diameter, e.g. "25.6 mm" or "11½\'\'\'", if known.' },
@@ -147,6 +150,7 @@ export function normalize(input: Record<string, unknown>, searched: Array<{ titl
     model: str(input.model),
     reference: str(input.reference),
     caliber: str(input.caliber),
+    movementType: (['automatic', 'manual', 'quartz', 'solar', 'kinetic', 'spring-drive'] as const).find((t) => t === input.movementType) ?? null,
     bph: num(input.bph),
     liftAngle: num(input.liftAngle),
     jewels: num(input.jewels),

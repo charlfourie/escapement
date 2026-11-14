@@ -1,5 +1,5 @@
 import { downsample, type Analysis } from '../analysis/analyze';
-import { blankWatch, db, newId, POSITIONS, WIND_STATES, type Position, type Watch, type WindState } from '../db';
+import { blankWatch, db, isTimegraphable, newId, POSITIONS, WIND_STATES, type Position, type Watch, type WindState } from '../db';
 import { h, select, toast } from '../util/dom';
 import { fmtMs, fmtRate, rateGrade } from '../util/format';
 
@@ -213,7 +213,7 @@ export class PositionTest {
   }
 
   private saveForm(results: StepResult[]): HTMLElement {
-    const watches = this.host.getWatches();
+    const watches = this.host.getWatches().filter(isTimegraphable);
     let targetId = this.host.getWatchId() || (watches[0]?.id ?? '__new');
     let wind: WindState = 'unknown';
     const nameInput = h('input', { type: 'text', placeholder: 'e.g. Seiko SPB143' });

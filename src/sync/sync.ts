@@ -9,11 +9,11 @@
  * changed online since the last pull; newer wins (by updatedAt).
  */
 import type { Transaction } from 'dexie';
-import { db, type Measurement, type Movement, type Watch } from '../db';
+import { db, type Measurement, type Movement, type TimeCheck, type Watch } from '../db';
 
-type Kind = 'watches' | 'measurements' | 'movements';
-const KINDS: Kind[] = ['watches', 'measurements', 'movements'];
-type AnyRecord = Watch | Measurement | Movement;
+type Kind = 'watches' | 'measurements' | 'movements' | 'checks';
+const KINDS: Kind[] = ['watches', 'measurements', 'movements', 'checks'];
+type AnyRecord = Watch | Measurement | Movement | TimeCheck;
 
 export type SyncStatus = 'unavailable' | 'not-configured' | 'signed-out' | 'idle' | 'syncing' | 'error' | 'offline';
 
@@ -154,7 +154,7 @@ async function pull(): Promise<number> {
     }
   }
 
-  await db.transaction('rw', db.watches, db.measurements, db.movements, async (tx) => {
+  await db.transaction('rw', db.watches, db.measurements, db.movements, db.checks, async (tx) => {
     (tx as unknown as Record<symbol, boolean>)[FROM_SYNC] = true;
     for (const kind of KINDS) {
       const table = db.table(kind);
@@ -197,7 +197,7 @@ async function push() {
   const entries = Object.entries(dirty);
   for (let i = 0; i < entries.length; i += BATCH) {
     const batch = entries.slice(i, i + BATCH);
-    const body: Record<Kind, unknown[]> & { deletions: Array<{ kind: Kind; id: string }> } = { watches: [], measurements: [], movements: [], deletions: [] };
+    const body: Record<Kind, unknown[]> & { deletions: Array<{ kind: Kind; id: string }> } = { watches: [], measurements: [], movements: [], checks: [], deletions: [] };
     const photoUploads: Array<{ id: string; photo: Blob }> = [];
     for (const [key] of batch) {
       const sep = key.indexOf(':');

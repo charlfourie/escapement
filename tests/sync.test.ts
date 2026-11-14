@@ -55,9 +55,11 @@ describe('sync engine against the real API', () => {
     await db.watches.add(w);
     await db.measurements.add({ id: newId(), watchId: w.id, takenAt: Date.now(), position: 'DU', wind: 'full', durationSec: 30, bph: 19800, rate: 3.1, beatError: 0.4, amplitude: 270, jitter: 0.02, ticks: 100, quality: 1, notes: '', trace: [] });
 
+    await db.checks.add({ id: newId(), watchId: w.id, at: Date.now(), offset: 1.5, reset: true, source: 'internet', notes: '', updatedAt: Date.now() });
     sync.markSignedIn('charlfourie');
     await sync.syncNow();
     expect(sync.getSyncState()).toMatchObject({ status: 'idle', pending: 0 });
+    expect([...blobs.keys()].filter((k) => k.startsWith('records/checks/'))).toHaveLength(1);
     expect([...blobs.keys()].sort()).toEqual(expect.arrayContaining([`records/watches/${w.id}.json`, `photos/${w.id}.jpg`]));
     expect([...blobs.keys()].filter((k) => k.startsWith('records/measurements/'))).toHaveLength(1);
 
@@ -88,6 +90,7 @@ describe('sync engine against the real API', () => {
     expect(blobs.has(`records/watches/${w.id}.json`)).toBe(false);
     expect(blobs.has(`deleted/watches/${w.id}.json`)).toBe(true);
     expect([...blobs.keys()].filter((k) => k.startsWith('records/measurements/'))).toHaveLength(0);
+    expect([...blobs.keys()].filter((k) => k.startsWith('records/checks/'))).toHaveLength(0);
 
     // A fresh device (empty local DB) gets everything that's left
     await db.delete();

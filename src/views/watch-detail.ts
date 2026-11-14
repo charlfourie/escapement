@@ -1,4 +1,5 @@
-import { db, deleteWatch, movementId, POSITIONS, WIND_STATES, watchMeasurements, type Measurement } from '../db';
+import { db, deleteWatch, isTimegraphable, movementId, MOVEMENT_TYPES, POSITIONS, WIND_STATES, watchMeasurements, type Measurement } from '../db';
+import { timeCheckPanel } from './time-check';
 import { drawTrace } from '../ui/canvas';
 import { historyChart } from '../ui/history-chart';
 import { h, toast } from '../util/dom';
@@ -15,14 +16,16 @@ export function watchDetailView(root: HTMLElement, id: string): void {
       return;
     }
     let ms = await watchMeasurements(id);
+    const mech = isTimegraphable(w);
 
     const specs: Array<[string, string]> = (
       [
         ['Brand', w.brand],
         ['Reference', w.reference],
+        ['Movement', w.movementType ? MOVEMENT_TYPES[w.movementType] : ''],
         ['Caliber', w.caliber],
-        ['Beat rate', w.bph ? `${fmtBph(w.bph)} bph` : 'Auto-detect'],
-        ['Lift angle', `${w.liftAngle}°`],
+        ['Beat rate', mech ? (w.bph ? `${fmtBph(w.bph)} bph` : 'Auto-detect') : ''],
+        ['Lift angle', mech ? `${w.liftAngle}°` : ''],
         ['Purchased', w.purchaseDate && fmtDate(Date.parse(w.purchaseDate))],
         ['Last serviced', w.lastService && fmtDate(Date.parse(w.lastService))],
       ] as Array<[string, string]>
@@ -141,7 +144,7 @@ export function watchDetailView(root: HTMLElement, id: string): void {
             h(
               'div',
               { class: 'actions' },
-              h('a', { class: 'btn primary', href: `#/measure?watch=${w.id}` }, 'Measure'),
+              mech && h('a', { class: 'btn primary', href: `#/measure?watch=${w.id}` }, 'Measure'),
               h('a', { class: 'btn', href: `#/watches/${w.id}/edit` }, 'Edit'),
               h(
                 'button',
@@ -159,9 +162,12 @@ export function watchDetailView(root: HTMLElement, id: string): void {
             ),
           ),
         ),
-        statsEl,
-        h('section', { class: 'panel' }, h('header', { class: 'panel-head' }, h('h2', null, 'Rate over time')), chartWrap),
-        h('section', { class: 'panel' }, h('header', { class: 'panel-head' }, h('h2', null, 'Measurements'), h('span', { class: 'muted small' }, 'Click a row to see its trace')), tableWrap),
+        // Quartz: time checks are the measurement. Mechanical: timegrapher first, time checks after.
+        !mech && timeCheckPanel(w, () => {}),
+        (mech || ms.length > 0) && statsEl,
+        (mech || ms.length > 0) && h('section', { class: 'panel' }, h('header', { class: 'panel-head' }, h('h2', null, 'Rate over time')), chartWrap),
+        (mech || ms.length > 0) && h('section', { class: 'panel' }, h('header', { class: 'panel-head' }, h('h2', null, 'Measurements'), h('span', { class: 'muted small' }, 'Click a row to see its trace')), tableWrap),
+        mech && timeCheckPanel(w, () => {}),
       ),
     );
     render();

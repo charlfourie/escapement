@@ -4,7 +4,7 @@ import { AutoLock, type LockState } from '../analysis/autolock';
 import type { SimParams } from '../audio/synth';
 import { amplitudeFrom, analyze, downsample, STANDARD_BPH, type Analysis, type AmplitudeResult } from '../analysis/analyze';
 import { PositionTest, SETTLE_SEC, STEP_SEC } from './position-test';
-import { blankWatch, db, newId, POSITIONS, WIND_STATES, type Position, type Watch, type WindState } from '../db';
+import { blankWatch, db, isTimegraphable, newId, POSITIONS, WIND_STATES, type Position, type Watch, type WindState } from '../db';
 import { loadPrefs, savePrefs } from '../prefs';
 import { drawTrace, drawWaveform } from '../ui/canvas';
 import { downloadBlob, encodeWav, h, select, toast } from '../util/dom';
@@ -328,7 +328,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
   }
 
   function renderWatchSelect() {
-    const opts: Array<[string, string]> = [['', watches.length ? 'Quick test (no watch)' : 'Quick test'], ...watches.map((w): [string, string] => [w.id, w.name])];
+    const opts: Array<[string, string]> = [['', watches.length ? 'Quick test (no watch)' : 'Quick test'], ...watches.filter(isTimegraphable).map((w): [string, string] => [w.id, w.name])];
     watchSelWrap.replaceChildren(
       select(opts, watchId, (v) => {
         watchId = v;
@@ -340,6 +340,11 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
 
   function applyWatchBph() {
     const w = watches.find((x) => x.id === watchId);
+    if (w && !isTimegraphable(w)) {
+      showMessage(`${w.name} is a quartz watch, which a timegrapher can’t read. Use Time checks on its page instead.`, 'info');
+      watchId = '';
+      return applyWatchBph();
+    }
     bphSetting = w?.bph ?? 0;
     bphSel.value = String(bphSetting);
   }
@@ -708,7 +713,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
     nameField.hidden = targetId !== '__new';
     const notes = h('input', { type: 'text', placeholder: 'Optional, e.g. after a day on the wrist' });
 
-    const watchOpts: Array<[string, string]> = [...watches.map((w): [string, string] => [w.id, w.name]), ['__new', '+ New watch…']];
+    const watchOpts: Array<[string, string]> = [...watches.filter(isTimegraphable).map((w): [string, string] => [w.id, w.name]), ['__new', '+ New watch…']];
     const saveBtn = h('button', { class: 'btn primary', onclick: () => void doSave() }, 'Save measurement');
 
     async function doSave() {

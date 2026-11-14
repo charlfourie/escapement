@@ -1,16 +1,17 @@
 import { AI_MODELS, AiError, identifyWatch, loadAi, saveAi, type Identification } from '../ai/identify';
-import type { MovementSpecs, Watch } from '../db';
+import { MOVEMENT_TYPES, type MovementSpecs, type Watch } from '../db';
 import { h, photoUrl, resizeImage } from '../util/dom';
 import { fmtBph, ranfftUrl } from '../util/format';
 
 const MAX_PHOTOS = 4;
 
-type Field = 'name' | 'brand' | 'reference' | 'caliber' | 'bph' | 'liftAngle' | 'jewels' | 'size';
+type Field = 'name' | 'brand' | 'reference' | 'movementType' | 'caliber' | 'bph' | 'liftAngle' | 'jewels' | 'size';
 
 const FIELD_LABELS: Record<Field, string> = {
   name: 'Name',
   brand: 'Brand',
   reference: 'Reference',
+  movementType: 'Movement type',
   caliber: 'Caliber',
   bph: 'Beat rate',
   liftAngle: 'Lift angle',
@@ -23,7 +24,8 @@ function suggested(id: Identification, f: Field): string | number | null {
   return id[f];
 }
 
-const show = (f: Field, v: string | number | null) => (v === null || v === '' ? '—' : f === 'bph' ? `${fmtBph(Number(v))} bph` : f === 'liftAngle' ? `${v}°` : String(v));
+const show = (f: Field, v: string | number | null) =>
+  v === null || v === '' ? '—' : f === 'bph' ? `${fmtBph(Number(v))} bph` : f === 'liftAngle' ? `${v}°` : f === 'movementType' ? (MOVEMENT_TYPES[v as keyof typeof MOVEMENT_TYPES] ?? String(v)) : String(v);
 
 /** Settings block for the API key and model; used here and on the Data page. */
 export function aiSettingsBlock(onChange?: () => void): HTMLElement {
@@ -204,7 +206,7 @@ export function identifyPanel(
 
   function renderResult(id: Identification) {
     const w = getWatch();
-    const current: Record<Field, string | number | null> = { name: w.name || null, brand: w.brand || null, reference: w.reference || null, caliber: w.caliber || null, bph: w.bph, liftAngle: w.liftAngle, jewels: null, size: null };
+    const current: Record<Field, string | number | null> = { name: w.name || null, brand: w.brand || null, reference: w.reference || null, movementType: w.movementType ?? null, caliber: w.caliber || null, bph: w.bph, liftAngle: w.liftAngle, jewels: null, size: null };
     const fields = (Object.keys(FIELD_LABELS) as Field[]).filter((f) => suggested(id, f) !== null && String(suggested(id, f)) !== String(current[f] ?? ''));
     const ticks = new Map<Field, HTMLInputElement>();
     const usePhoto = h('input', { type: 'checkbox', checked: !w.photo && photos.length > 0 });

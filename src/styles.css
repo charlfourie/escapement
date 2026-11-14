@@ -221,6 +221,23 @@ canvas.wave { width: 100%; height: 150px; display: block; background: var(--bg);
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 
+/* time checks */
+.tc-live { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin: 12px 0 4px; }
+.tc-clock { font: 600 2.4rem/1 var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.tc-clock strong { color: var(--tic); }
+.tc-tenths { font-size: 1.2rem; color: var(--muted); }
+.tc-tap { font-size: 1rem; padding: 12px 18px; }
+.tc-source { margin: 0 0 8px; }
+.tc-pending { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 8px 0; display: grid; gap: 8px; background: var(--bg); }
+.tc-pending p { margin: 0; }
+.tc-pending .actions { margin-top: 0; }
+.tc-offset { font-family: var(--mono); color: var(--tic); }
+.tc-summary { display: grid; gap: 6px; }
+.tc-summary .stat { max-width: 340px; }
+.tc-history { display: grid; gap: 10px; margin-top: 8px; }
+.tc-chart { max-width: 640px; }
+.tc-badge { font: 0.68rem var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; margin-left: 6px; }
+
 /* sync */
 .topbar-right { display: flex; align-items: center; gap: 10px; }
 .sync-chip { font: 0.75rem var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; white-space: nowrap; }
