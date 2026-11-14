@@ -43,7 +43,13 @@ const navLinks = [
   ['data', '#/data', 'Data'],
 ] as const;
 
-const nav = h('nav', { class: 'nav' }, navLinks.map(([key, href, label]) => h('a', { href, 'data-key': key }, label)));
+const nav = h(
+  'nav',
+  { class: 'nav' },
+  navLinks.map(([key, href, label]) => h('a', { href, 'data-key': key }, label)),
+  // Pickup Lab is its own page; on narrow screens it lives in the footer instead.
+  h('a', { href: '/lab', class: 'nav-lab', title: 'Pickup Lab: test a pickup or microphone' }, 'Lab'),
+);
 const view = h('main', { id: 'view' });
 
 document.getElementById('app')!.append(
@@ -53,7 +59,12 @@ document.getElementById('app')!.append(
     'footer',
     { class: 'footer' },
     h('span', null, 'Escapement: an open-source timegrapher for your browser.'),
-    REPO_URL && h('a', { href: REPO_URL, target: '_blank', rel: 'noopener' }, 'Source on GitHub'),
+    h(
+      'span',
+      { class: 'footer-links' },
+      h('a', { href: '/lab' }, 'Pickup Lab'),
+      REPO_URL && h('a', { href: REPO_URL, target: '_blank', rel: 'noopener' }, 'Source on GitHub'),
+    ),
   ),
 );
 
