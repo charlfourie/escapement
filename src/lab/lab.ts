@@ -5,6 +5,7 @@
  * and runs three short tests (noise, tap, watch) that end in a verdict.
  */
 import '../styles.css';
+import { placementGuide } from '../views/placement';
 import './lab.css';
 import { AudioEngine, listInputs, type EngineUpdate } from '../audio/engine';
 import { AUTO_BANK } from '../audio/detector';
@@ -124,7 +125,6 @@ const tips = h(
     h('li', null, 'Plain USB-C headphone adapters usually only accept a mic through a 4-ring (TRRS) plug. A 2- or 3-ring guitar plug won’t reach the mic contact, so the phone keeps using its built-in mic.'),
     isIOS && h('li', null, 'On iPhone and iPad the browser can’t pick between inputs. Plugging in a USB sound card makes it the input automatically; check that the level jumps when you tap the pickup.'),
     isAndroid && h('li', null, 'On Android the sound card shows up as “USB audio” (or similar) in the list after you allow the microphone. If it doesn’t, unplug and replug it, then refresh the list.'),
-    h('li', null, 'Clip the pickup to a lug or the edge of the case, not the strap or bracelet, and rest the watch on a folded cloth.'),
     h('li', null, 'If the level barely moves with the watch on, the pickup may need more gain: some sound cards have a gain knob or a setting in the phone’s audio menu.'),
   ),
 );
@@ -170,6 +170,7 @@ document.getElementById('app')!.append(
         ),
         liveStatus,
       ),
+      placementGuide({ open: true }),
       card('3 · Tests', 'run them in order, about 30 s in total', testsEl),
       card('4 · Verdict', 'for the selected input', verdictEl, h('div', { class: 'actions' }, recordBtn, h('span', { class: 'muted small' }, 'A clip helps tune detection for your exact setup.'))),
       card('Compare inputs', 'results kept in this browser', compareEl),

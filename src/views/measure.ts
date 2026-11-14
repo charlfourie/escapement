@@ -1,5 +1,6 @@
 import { AudioEngine, listInputs, type EngineUpdate } from '../audio/engine';
 import { AUTO_BANK, SNIPPET_BIN_MS, SNIPPET_PRE_MS } from '../audio/detector';
+import { placementGuide } from './placement';
 import { AutoLock, type LockState } from '../analysis/autolock';
 import { TickAligner } from '../analysis/align';
 import type { SimParams } from '../audio/synth';
@@ -310,7 +311,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
       'ul',
       null,
       h('li', null, 'Find a quiet room. Lay the watch dial-up on a soft cloth with the caseback (or the lugs) touching your phone or laptop microphone.'),
-      h('li', null, 'Better still, use a cheap piezo contact mic pressed against the case. It ignores room noise.'),
+      h('li', null, 'Better still, use a piezo contact pickup clipped to the case. See “Where to clip the pickup” below.'),
       h('li', null, 'Press Start. When dots form two tidy lines, give it 30–60 seconds, then press Stop and save.'),
       h('li', null, 'Amplitude needs the right lift angle for accuracy. Set it on the watch (52° suits most movements; check the caliber on Ranfft DB).'),
       h('li', null, 'For a full picture, use the six-position test: it measures each position in turn and works out the average rate and the spread between positions.'),
@@ -334,6 +335,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
       simPanel,
       savePanel,
       help,
+      placementGuide(),
     ),
   );
 
