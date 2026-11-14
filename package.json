@@ -22,9 +22,11 @@
     "analyze-clip": "tsx scripts/analyze-clip.ts"
   },
   "dependencies": {
+    "@vercel/blob": "^2.9.0",
     "dexie": "^4.4.7"
   },
   "devDependencies": {
+    "@types/node": "^26.6.6",
     "fake-indexeddb": "^6.2.8",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",

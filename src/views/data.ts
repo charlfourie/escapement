@@ -1,6 +1,7 @@
 import { db, POSITIONS, WIND_STATES, type Measurement, type Movement, type Watch } from '../db';
 import { h, toast } from '../util/dom';
 import { aiSettingsBlock } from './identify-panel';
+import { syncPanel } from '../sync/ui';
 
 interface ExportFile {
   app: 'escapement';
@@ -110,11 +111,12 @@ export function dataView(root: HTMLElement): void {
       'div',
       { class: 'page narrow' },
       h('header', { class: 'page-head' }, h('h1', null, 'Your data')),
+      syncPanel(),
       h(
         'section',
         { class: 'panel' },
-        h('h2', null, 'Stored on this device'),
-        h('p', null, 'Escapement has no accounts and no server. Your watches and measurements live in this browser’s storage (IndexedDB). Export a backup now and then, or to move to another device.'),
+        h('h2', null, 'On this device'),
+        h('p', null, 'Your watches and measurements always live in this browser’s storage (IndexedDB), so the app works offline. With the online collection switched on, they’re also kept in sync online. Backups are still handy as a file you control.'),
         counts,
       ),
       h(

@@ -6,6 +6,8 @@ import { watchFormView } from './views/watch-form';
 import { watchDetailView } from './views/watch-detail';
 import { dataView } from './views/data';
 import { movementDetailView, movementsView } from './views/movements';
+import { initSync } from './sync/sync';
+import { syncChip } from './sync/ui';
 
 /** Set to your public repo URL to show a source link in the footer. */
 const REPO_URL = 'https://github.com/charlfourie/escapement';
@@ -45,7 +47,7 @@ const nav = h('nav', { class: 'nav' }, navLinks.map(([key, href, label]) => h('a
 const view = h('main', { id: 'view' });
 
 document.getElementById('app')!.append(
-  h('header', { class: 'topbar' }, h('a', { class: 'brand', href: '#/measure' }, logo(), h('span', null, 'Escapement')), nav),
+  h('header', { class: 'topbar' }, h('a', { class: 'brand', href: '#/measure' }, logo(), h('span', null, 'Escapement')), h('div', { class: 'topbar-right' }, syncChip(), nav)),
   view,
   h(
     'footer',
@@ -78,3 +80,14 @@ function route() {
 
 window.addEventListener('hashchange', route);
 route();
+void initSync();
+
+// New data from another device: redraw read-only pages. Pages where you might
+// be measuring or typing (Measure, the watch form) are left alone.
+window.addEventListener('escapement:synced', () => {
+  const path = location.hash.replace(/^#/, '').split('?')[0] || '/measure';
+  if (/^\/?(measure)?$/.test(path) || /\/(new|edit)$/.test(path)) return;
+  const y = window.scrollY;
+  route();
+  window.scrollTo(0, y);
+});

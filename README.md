@@ -18,6 +18,27 @@ No app to install, no account, no server. Your data stays in your browser.
 - **Movement library:** one entry per caliber, built as you add watches: specs (maker, beat rate, lift angle, jewels, size) from you or from AI identification, plus your own timing results across every watch with that movement. Each entry links to [Ranfft DB](https://ranfft.org), the community movement encyclopedia, for reference. Escapement doesn't copy Ranfft's data.
 - **Simulated watch:** try everything without a watch. Set rate, beat error, amplitude and noise, and listen to it tick.
 
+## Online collection (optional)
+
+Escapement is local-first: everything lives in your browser and works offline. On a hosted deployment, you can also sign in with GitHub to keep your watches, photos and readings **in sync across devices**, backed up in a **private** Vercel Blob store. Only one GitHub account, the owner's, can sign in.
+
+To set it up on your own Vercel deployment:
+
+1. **Create a private Blob store** in the Vercel project (Storage → Create → Blob, access *Private*). Connecting it adds the storage credentials.
+2. **Create a GitHub OAuth app** (GitHub → Settings → Developer settings → OAuth Apps → New):
+   - Homepage URL: `https://<your-app>.vercel.app`
+   - Authorization callback URL: `https://<your-app>.vercel.app/api/auth/callback`
+3. **Add environment variables** to the Vercel project, then redeploy:
+
+   | Variable | Value |
+   | --- | --- |
+   | `GITHUB_CLIENT_ID` | from the OAuth app |
+   | `GITHUB_CLIENT_SECRET` | from the OAuth app (generate a client secret) |
+   | `OWNER_GITHUB` | your GitHub username, the only account allowed in |
+   | `SESSION_SECRET` | a long random string, e.g. `openssl rand -base64 48` |
+
+How it works: small Vercel Functions in `api/` handle sign-in (a signed, HttpOnly session cookie; no database) and sync. Each record is a JSON document in the private store, and deletions leave a tombstone so they reach other devices. The app tracks local changes with IndexedDB hooks, pushes them a couple of seconds after each change, and pulls whatever changed online since the last sync. The newer version wins.
+
 ## How it works
 
 ```
@@ -73,8 +94,12 @@ src/
   analysis/   beat-rate detection, fit, trace
   ui/         canvas trace + waveform, SVG history chart
   views/      measure, watches, watch detail/form, movements, data
+  sync/       online sync engine and its UI
+  lab/        Pickup Lab page
   db.ts       Dexie schema
-tests/        detector + analysis tests
+api/          Vercel Functions: GitHub sign-in, sync, photos (private Blob)
+scripts/      offline clip analyser
+tests/        detector, analysis, API and sync tests
 ```
 
 ## Pickup Lab
@@ -108,7 +133,8 @@ It prints what each auto-tune detector heard, which one locked, and the resultin
 - [ ] Tested on real watches with a contact pickup
 - [ ] Service-due hints from amplitude trend
 - [ ] Installable PWA / offline
-- [ ] Optional online collection: sign-in protected sync of watches and results across devices (local-first stays the default)
+- [x] Optional online collection: GitHub sign-in, automatic sync of watches, photos and readings across devices (local-first stays the default)
+- [ ] Public share page for chosen watches
 
 ## Licence
 
