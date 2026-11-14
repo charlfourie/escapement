@@ -48,9 +48,9 @@ export const AUTO_BANK: Array<Pick<DetectorSettings, 'highpassHz' | 'sensitivity
 );
 
 /** Emitted envelope snippet: 2 ms before onset, 22 ms after. */
-export const SNIPPET_PRE_MS = 2;
-export const SNIPPET_MS = 24;
-export const SNIPPET_BIN_MS = 0.25;
+export const SNIPPET_PRE_MS = 4;
+export const SNIPPET_MS = 28;
+export const SNIPPET_BIN_MS = 0.1;
 /** Look-back/look-ahead captured around a trigger to find the true first click. */
 const LOOKBACK_MS = 16;
 const LOOKAHEAD_MS = 24;
@@ -107,6 +107,11 @@ export class TickDetector {
   private settings: DetectorSettings;
   private readonly hp1: Biquad;
   private readonly hp2: Biquad;
+  /** Separate filters for the timing signal (see process()). */
+  private readonly hpT1: Biquad;
+  private readonly hpT2: Biquad;
+  private envT = 0;
+  private noiseT = 0;
 
   private env = 0;
   private noise = 0;
@@ -137,6 +142,8 @@ export class TickDetector {
     this.settings = { ...DEFAULT_DETECTOR, ...settings };
     this.hp1 = new Biquad(this.settings.highpassHz, sampleRate);
     this.hp2 = new Biquad(this.settings.highpassHz, sampleRate);
+    this.hpT1 = new Biquad(this.settings.highpassHz, sampleRate);
+    this.hpT2 = new Biquad(this.settings.highpassHz, sampleRate);
 
     this.releaseMul = Math.exp(-1 / (0.0015 * sampleRate)); // 1.5 ms envelope release
     this.noiseDown = coef(0.05, sampleRate); // floor follows quiet quickly…
@@ -170,7 +177,13 @@ export class TickDetector {
     return l;
   }
 
-  process(input: Float32Array): TickEvent[] {
+  /**
+   * `input` decides *whether* there's a tick. If `timing` is given (the same
+   * audio, unprocessed and time-aligned), it decides *when*: onset, envelope
+   * snippet and lift are measured on it. That lets noise reduction help find
+   * ticks without its frame-by-frame gains nudging their timing.
+   */
+  process(input: Float32Array, timing?: Float32Array): TickEvent[] {
     const events: TickEvent[] = [];
     const refractory = Math.round((this.settings.refractoryMs / 1000) * this.sampleRate);
     const ring = this.ring;
@@ -188,21 +201,31 @@ export class TickDetector {
       }
       if (e > this.levelMax) this.levelMax = e;
 
-      ring[this.ringPos] = e;
+      let te = e;
+      if (timing) {
+        const xt = this.hpT2.step(this.hpT1.step(timing[i]));
+        const rt = xt < 0 ? -xt : xt;
+        this.envT = rt > this.envT ? rt : this.envT * this.releaseMul;
+        te = this.envT;
+        if (this.frame < this.warmupUntil) this.noiseT += (te - this.noiseT) * this.noiseWarm;
+        else this.noiseT += (te - this.noiseT) * (te < this.noiseT ? this.noiseDown : this.noiseUp);
+      }
+
+      ring[this.ringPos] = te;
       this.ringPos = (this.ringPos + 1) % ring.length;
 
       if (this.capture) {
-        this.capture.push(e);
-        if (e > this.capturePeak) this.capturePeak = e;
+        this.capture.push(te);
+        if (te > this.capturePeak) this.capturePeak = te;
         if (this.capture.length >= this.captureLength) events.push(this.finishCapture());
       } else if (this.frame >= this.holdUntil && this.frame >= this.warmupUntil) {
         const thr = this.threshold;
         if (e > thr) {
           // Absolute frame of the first sample in the capture buffer.
           this.captureOnset = this.frame - ring.length + 1;
-          this.captureNoise = this.noise;
+          this.captureNoise = timing ? this.noiseT : this.noise;
           this.holdUntil = this.frame + refractory;
-          this.capturePeak = e;
+          this.capturePeak = te;
           const snippet: number[] = [];
           for (let k = 0; k < ring.length; k++) snippet.push(ring[(this.ringPos + k) % ring.length]);
           this.capture = snippet;

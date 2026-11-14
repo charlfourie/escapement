@@ -44,7 +44,7 @@ export class AudioEngine {
     return this.ctx !== null;
   }
 
-  async start(source: Source, opts: { auto: boolean; detector: Partial<DetectorSettings> }): Promise<void> {
+  async start(source: Source, opts: { auto: boolean; denoise?: boolean; detector: Partial<DetectorSettings> }): Promise<void> {
     await this.stop();
     // Create and resume inside the click handler so browsers allow audio.
     const ctx = new AudioContext({ latencyHint: 'interactive' });
@@ -68,7 +68,7 @@ export class AudioEngine {
         numberOfInputs: 1,
         numberOfOutputs: 1,
         outputChannelCount: [1],
-        processorOptions: { detector: opts.detector, auto: opts.auto, sim: source.kind === 'sim' ? source.params : null },
+        processorOptions: { detector: opts.detector, auto: opts.auto, denoise: Boolean(opts.denoise), sim: source.kind === 'sim' ? source.params : null },
       });
       node.port.onmessage = (e: MessageEvent) => {
         if (e.data?.type === 'update') this.onUpdate?.(e.data as EngineUpdate);
@@ -103,6 +103,11 @@ export class AudioEngine {
   /** Dead time after each tick, for all detectors (cuts echoes once locked). */
   setRefractory(ms: number): void {
     this.node?.port.postMessage({ type: 'refractory', ms });
+  }
+
+  /** Switch noise reduction on or off while running. */
+  setDenoise(on: boolean): void {
+    this.node?.port.postMessage({ type: 'denoise', on });
   }
 
   /** Which detector feeds the level meter. */

@@ -7,6 +7,8 @@ export interface Prefs {
   sensitivity: number;
   /** Let the bank of detectors find the trigger level and filter. */
   autoTrigger: boolean;
+  /** Spectral noise reduction ahead of the detectors. */
+  denoise: boolean;
   traceSpan: number;
   sim: SimParams;
   lastWatch: string;
@@ -19,6 +21,7 @@ const DEFAULTS: Prefs = {
   deviceId: '',
   sensitivity: DEFAULT_DETECTOR.sensitivity,
   autoTrigger: true,
+  denoise: false,
   traceSpan: 10,
   sim: DEFAULT_SIM,
   lastWatch: '',

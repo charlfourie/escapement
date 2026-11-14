@@ -3,6 +3,7 @@
 
 import { AUTO_BANK, TickDetector, type DetectorSettings, type TickEvent } from './detector';
 import { TickSynth, type SimParams } from './synth';
+import { SpectralDenoiser } from './denoise';
 
 // AudioWorkletGlobalScope globals (not in the DOM lib).
 declare const sampleRate: number;
@@ -14,7 +15,7 @@ declare class AudioWorkletProcessor {
 }
 
 interface Options {
-  processorOptions?: { detector?: Partial<DetectorSettings>; auto?: boolean; sim?: SimParams | null };
+  processorOptions?: { detector?: Partial<DetectorSettings>; auto?: boolean; denoise?: boolean; sim?: SimParams | null };
 }
 
 /** A tick tagged with the index of the detector that heard it. */
@@ -26,6 +27,9 @@ class TickProcessor extends AudioWorkletProcessor {
   private selected = 0;
   private synth: TickSynth | null;
   private buffer = new Float32Array(128);
+  private cleaned = new Float32Array(128);
+  /** Always in the path (constant latency); `enabled` switches the reduction itself. */
+  private denoiser: SpectralDenoiser;
   private pending: BankTick[] = [];
   private lastPost = 0;
   /** Raw-input recording for the clip recorder. */
@@ -40,11 +44,14 @@ class TickProcessor extends AudioWorkletProcessor {
       ? AUTO_BANK.map((b) => new TickDetector(sampleRate, { ...opts.detector, ...b }))
       : [new TickDetector(sampleRate, opts.detector)];
     this.synth = opts.sim ? new TickSynth(sampleRate, opts.sim) : null;
+    this.denoiser = new SpectralDenoiser(sampleRate);
+    this.denoiser.enabled = Boolean(opts.denoise);
     this.port.onmessage = (e: MessageEvent) => {
       const m = e.data;
       if (m?.type === 'detector' && !this.auto) this.bank[0].setSettings(m.settings);
       else if (m?.type === 'refractory') this.bank.forEach((d) => d.setSettings({ refractoryMs: m.ms }));
       else if (m?.type === 'select' && m.index >= 0 && m.index < this.bank.length) this.selected = m.index;
+      else if (m?.type === 'denoise') this.denoiser.enabled = Boolean(m.on);
       else if (m?.type === 'sim' && this.synth) this.synth.setParams(m.params);
       else if (m?.type === 'record') {
         this.rec = new Float32Array(Math.round(Math.min(30, Math.max(1, Number(m.seconds) || 10)) * sampleRate));
@@ -79,8 +86,10 @@ class TickProcessor extends AudioWorkletProcessor {
       }
     }
 
+    if (this.cleaned.length !== input.length) this.cleaned = new Float32Array(input.length);
+    this.denoiser.process(input, this.cleaned);
     for (let d = 0; d < this.bank.length; d++) {
-      for (const t of this.bank[d].process(input)) this.pending.push({ ...t, d });
+      for (const t of this.bank[d].process(this.cleaned)) this.pending.push({ ...t, d });
     }
 
     if (currentFrame - this.lastPost >= sampleRate * 0.05) {

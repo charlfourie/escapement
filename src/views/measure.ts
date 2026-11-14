@@ -1,6 +1,7 @@
 import { AudioEngine, listInputs, type EngineUpdate } from '../audio/engine';
 import { AUTO_BANK, SNIPPET_BIN_MS, SNIPPET_PRE_MS } from '../audio/detector';
 import { AutoLock, type LockState } from '../analysis/autolock';
+import { TickAligner } from '../analysis/align';
 import type { SimParams } from '../audio/synth';
 import { amplitudeFrom, analyze, downsample, STANDARD_BPH, type Analysis, type AmplitudeResult } from '../analysis/analyze';
 import { PositionTest, SETTLE_SEC, STEP_SEC } from './position-test';
@@ -57,6 +58,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
   let state: State = 'idle';
   let times: number[] = [];
   let lifts: Array<number | null> = [];
+  let aligner = new TickAligner(SNIPPET_BIN_MS);
   let snippets: number[][] = [];
   let liveAmp: AmplitudeResult | null = null;
   let fullAmp: AmplitudeResult | null = null;
@@ -191,6 +193,21 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
   });
   triggerSlider.hidden = prefs.autoTrigger;
   const lockStatus = h('p', { class: 'lock-status' });
+  const denoiseBox = h('input', {
+    type: 'checkbox',
+    checked: prefs.denoise,
+    onchange: (e: Event) => {
+      prefs.denoise = (e.target as HTMLInputElement).checked;
+      savePrefs({ denoise: prefs.denoise });
+      engine.setDenoise(prefs.denoise);
+    },
+  });
+  const denoiseRow = h(
+    'label',
+    { class: 'check denoise-row', title: 'Spectral noise reduction ahead of the tick detector' },
+    denoiseBox,
+    h('span', null, h('strong', null, 'Noise reduction'), ' · helps with steady hum, buzz or whine (fans, chargers, mains). Leave it off for plain hiss, where it can make things worse.'),
+  );
   const autoBox = h('input', {
     type: 'checkbox',
     checked: prefs.autoTrigger,
@@ -212,6 +229,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
     meter,
     h('div', { class: 'meter-legend' }, h('span', null, h('i', { class: 'sw fill' }), 'level'), h('span', null, h('i', { class: 'sw noise' }), 'noise'), h('span', null, h('i', { class: 'sw thr' }), 'trigger')),
     lockStatus,
+    denoiseRow,
     triggerSlider,
     deviceField,
     h('dl', { class: 'stats' }, h('div', null, h('dt', null, 'Ticks'), stTicks), h('div', null, h('dt', null, 'Clean beats'), stQuality), h('div', null, h('dt', null, 'Jitter'), stJitter), h('div', null, h('dt', null, 'Elapsed'), stElapsed)),
@@ -361,7 +379,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
   function onUpdate(u: EngineUpdate) {
     if (autolock) {
       for (const t of u.ticks) {
-        autolock.add(t.d, t.time, t.lift);
+        autolock.add(t.d, t.time, t.lift, t.envelope);
         const s = (streamSnips[t.d] ??= []);
         s.push(t.envelope);
         if (s.length > 12) s.shift();
@@ -370,7 +388,9 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
       followStream();
     } else {
       for (const t of u.ticks) {
-        times.push(t.time);
+        const a = aligner.align(t.time, t.envelope);
+        if (!a) continue;
+        times.push(a.time);
         lifts.push(t.lift);
         snippets.push(t.envelope);
       }
@@ -528,6 +548,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
     state = 'starting';
     times = [];
     lifts = [];
+    aligner = new TickAligner(SNIPPET_BIN_MS);
     snippets = [];
     live = full = null;
     liveAmp = fullAmp = null;
@@ -544,6 +565,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
     try {
       await engine.start(prefs.source === 'sim' ? { kind: 'sim', params: prefs.sim } : { kind: 'mic', deviceId: prefs.deviceId || undefined }, {
         auto: prefs.autoTrigger,
+        denoise: prefs.denoise,
         detector: { sensitivity: prefs.sensitivity },
       });
     } catch (err) {

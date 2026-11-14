@@ -28,7 +28,7 @@ function runAuto(audio: Float32Array, bphSetting: number | null) {
   let refractory = 50;
   for (let off = 0, block = 0; off < audio.length; off += 128, block++) {
     const chunk = audio.subarray(off, off + 128);
-    bank.forEach((det, d) => det.process(chunk).forEach((t) => lock.add(d, t.time)));
+    bank.forEach((det, d) => det.process(chunk).forEach((t) => lock.add(d, t.time, t.lift, t.envelope)));
     if (block % Math.round((0.5 * SR) / 128) === 0) {
       const st = lock.evaluate(bphSetting);
       // Mirror the app: once confidently locked, widen the dead time to cut echoes.

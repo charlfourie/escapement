@@ -1,7 +1,7 @@
 /**
  * Analyse a recorded clip offline with the same pipeline as the app.
  *
- *   npm run analyze-clip -- path/to/clip.wav [--bph 28800] [--lift 52]
+ *   npm run analyze-clip -- path/to/clip.wav [--bph 28800] [--lift 52] [--nr]
  *
  * Prints what each auto-tune detector heard, which one locks, and the
  * resulting rate, beat error and amplitude. Use it to tune detection on
@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs';
 import { AUTO_BANK, TickDetector } from '../src/audio/detector';
 import { amplitudeFrom, analyze } from '../src/analysis/analyze';
 import { AutoLock, quickScore } from '../src/analysis/autolock';
+import { SpectralDenoiser } from '../src/audio/denoise';
 
 function readWav(path: string): { sampleRate: number; samples: Float32Array } {
   const b = readFileSync(path);
@@ -54,8 +55,12 @@ if (!file) {
 const { sampleRate, samples } = readWav(file);
 const bphSetting = opt('bph');
 const liftAngle = opt('lift') ?? 52;
+const nr = args.includes('--nr');
+const denoiser = new SpectralDenoiser(sampleRate);
+denoiser.enabled = nr;
+const cleaned = new Float32Array(128);
 const peak = samples.reduce((m, x) => Math.max(m, Math.abs(x)), 0);
-console.log(`${file}: ${(samples.length / sampleRate).toFixed(1)} s at ${sampleRate} Hz, peak ${(20 * Math.log10(peak || 1e-9)).toFixed(1)} dBFS`);
+console.log(`${file}: ${(samples.length / sampleRate).toFixed(1)} s at ${sampleRate} Hz, peak ${(20 * Math.log10(peak || 1e-9)).toFixed(1)} dBFS${nr ? ' · noise reduction on' : ''}`);
 
 const bank = AUTO_BANK.map((b) => new TickDetector(sampleRate, b));
 const lock = new AutoLock(bank.length);
@@ -63,7 +68,9 @@ let refractory = 50;
 let state = lock.current;
 for (let off = 0, block = 0; off < samples.length; off += 128, block++) {
   const chunk = samples.subarray(off, off + 128);
-  bank.forEach((det, d) => det.process(chunk).forEach((t) => lock.add(d, t.time, t.lift)));
+  if (chunk.length < 128) break;
+  denoiser.process(chunk, cleaned);
+  bank.forEach((det, d) => det.process(cleaned).forEach((t) => lock.add(d, t.time, t.lift, t.envelope)));
   if (block % Math.round((0.75 * sampleRate) / 128) === 0) {
     state = lock.evaluate(bphSetting);
     const want = state.locked && state.bph ? Math.round(0.45 * (3600 / state.bph) * 1000) : 50;

@@ -154,6 +154,20 @@ document.getElementById('app')!.append(
         h('p', { class: 'hint' }, 'Watch ticks show up as broad energy in the shaded 2–8 kHz band. A spike at 50 Hz (and 100, 150…) is mains hum.'),
         h('h3', { class: 'lab-h3' }, 'Waveform'),
         scope,
+        h(
+          'label',
+          { class: 'check denoise-row' },
+          h('input', {
+            type: 'checkbox',
+            checked: loadPrefs().denoise,
+            onchange: (e: Event) => {
+              const on = (e.target as HTMLInputElement).checked;
+              savePrefs({ denoise: on });
+              engine.setDenoise(on);
+            },
+          }),
+          h('span', null, h('strong', null, 'Noise reduction'), ' for the tick detector (shared with Escapement). Try the watch test with it on and off: it helps with steady hum, buzz or whine, not with plain hiss.'),
+        ),
         liveStatus,
       ),
       card('3 · Tests', 'run them in order, about 30 s in total', testsEl),
@@ -227,7 +241,7 @@ async function startListening() {
   const sim = currentId === SIM_ID;
   const prefs = loadPrefs();
   try {
-    await engine.start(sim ? { kind: 'sim', params: { ...prefs.sim, noise: 0.006 } } : { kind: 'mic', deviceId: currentId === 'default' ? undefined : currentId }, { auto: true, detector: {} });
+    await engine.start(sim ? { kind: 'sim', params: { ...prefs.sim, noise: 0.006 } } : { kind: 'mic', deviceId: currentId === 'default' ? undefined : currentId }, { auto: true, denoise: prefs.denoise, detector: {} });
   } catch (err) {
     liveStatus.textContent = `Couldn’t open this input: ${(err as Error)?.message ?? err}`;
     return;
@@ -296,7 +310,7 @@ function renderSettings() {
 function onUpdate(u: EngineUpdate) {
   if (!lock) return;
   for (const t of u.ticks) {
-    lock.add(t.d, t.time, t.lift);
+    lock.add(t.d, t.time, t.lift, t.envelope);
     peaks[t.d].push(t.peak);
   }
   noiseReports.push(u.noise);

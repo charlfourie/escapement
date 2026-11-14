@@ -14,6 +14,8 @@
  */
 
 import { analyze, STANDARD_BPH, type Analysis } from './analyze';
+import { TickAligner } from './align';
+import { SNIPPET_BIN_MS } from '../audio/detector';
 
 const EVAL_WINDOW_SEC = 10;
 /** A stream is "locked" when it hears most beats, tightly on the grid. */
@@ -99,6 +101,8 @@ export class AutoLock {
   readonly streams: number[][];
   /** Lift time per tick, parallel to `streams`. */
   readonly lifts: Array<Array<number | null>>;
+  /** Shape-matched timing, one template per stream. */
+  private readonly aligners: TickAligner[];
   private state: LockState = { index: 0, bph: null, score: 0, locked: false };
   private lockedBph: number | null = null;
   private misses = 0;
@@ -107,10 +111,20 @@ export class AutoLock {
   constructor(streamCount: number) {
     this.streams = Array.from({ length: streamCount }, () => []);
     this.lifts = Array.from({ length: streamCount }, () => []);
+    this.aligners = Array.from({ length: streamCount }, () => new TickAligner(SNIPPET_BIN_MS));
   }
 
-  add(stream: number, time: number, lift: number | null = null): void {
+  /**
+   * Add a tick. With its envelope, the time is refined by matching the beat's
+   * shape (see TickAligner), and ticks that don't look like beats are dropped.
+   */
+  add(stream: number, time: number, lift: number | null = null, envelope?: number[]): void {
     if (!this.streams[stream]) return;
+    if (envelope) {
+      const r = this.aligners[stream].align(time, envelope);
+      if (!r) return;
+      time = r.time;
+    }
     this.streams[stream].push(time);
     this.lifts[stream].push(lift);
   }
@@ -134,10 +148,13 @@ export class AutoLock {
   }
 
   evaluate(bphSetting: number | null): LockState {
+    // While locked, keep checking double the rate too: if only every other
+    // tick was heard at first, the lock would otherwise stay at half rate.
+    const doubled = this.lockedBph && (STANDARD_BPH as readonly number[]).includes(this.lockedBph * 2) ? [this.lockedBph * 2] : [];
     const candidates: readonly number[] = bphSetting
       ? [bphSetting]
       : this.lockedBph && this.misses < RESCAN_AFTER
-        ? [this.lockedBph]
+        ? [this.lockedBph, ...doubled]
         : STANDARD_BPH;
 
     // Pre-screen every pair cheaply. Each stream then gets a full analysis at
