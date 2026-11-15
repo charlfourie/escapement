@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie';
 import type { TracePoint } from './analysis/analyze';
+import type { FaceDesign } from './views/watch-art';
 
 export type Position = 'DU' | 'DD' | 'CU' | 'CD' | 'CL' | 'CR';
 export const POSITIONS: Record<Position, string> = {
@@ -69,6 +70,8 @@ export interface Watch {
   photoCrop?: PhotoCrop;
   /** Battery changes, newest first (quartz watches). */
   batteries?: BatteryChange[];
+  /** Choices for the drawn face; anything missing follows the watch automatically. */
+  face?: Partial<FaceDesign>;
   createdAt: number;
   updatedAt: number;
 }

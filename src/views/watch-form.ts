@@ -1,8 +1,10 @@
 import { STANDARD_BPH } from '../analysis/analyze';
 import { blankWatch, db, isTimegraphable, MOVEMENT_TYPES, upsertMovement, type MovementSpecs, type MovementType, type Watch } from '../db';
-import { applyCrop, dialGlyph, h, photoUrl, resizeImage, select, toast } from '../util/dom';
+import { applyCrop, h, photoUrl, resizeImage, select, toast } from '../util/dom';
 import { fmtBph, fmtHz } from '../util/format';
 import { identifyPanel } from './identify-panel';
+import { faceDesigner } from './face-designer';
+import { watchArt } from './watch-art';
 
 export function watchFormView(root: HTMLElement, id: string | null): void {
   void (async () => {
@@ -86,7 +88,8 @@ export function watchFormView(root: HTMLElement, id: string | null): void {
       previewImg = w.photo ? h('img', { src: photoUrl(w.photo), alt: '', draggable: 'false' }) : null;
       if (previewImg) applyCrop(previewImg, w.photoCrop);
       preview.classList.toggle('croppable', Boolean(previewImg));
-      preview.replaceChildren(previewImg ?? dialGlyph());
+      preview.classList.toggle('drawn', !previewImg);
+      preview.replaceChildren(previewImg ?? watchArt(w));
       zoom.value = String(w.photoCrop?.zoom ?? 1);
       cropRow.hidden = cropHint.hidden = !w.photo;
     };
@@ -123,10 +126,26 @@ export function watchFormView(root: HTMLElement, id: string | null): void {
       },
     });
 
+    const designer = faceDesigner(w, () => {
+      if (!w.photo || w.face?.preferArt) renderPreview();
+    });
+    // Name, brand and type feed the automatic face: keep both previews current.
+    let typingTimer = 0;
+    const onFieldInput = () => {
+      clearTimeout(typingTimer);
+      typingTimer = window.setTimeout(() => {
+        designer.refresh();
+        if (!w.photo) renderPreview();
+      }, 250);
+    };
+
     const form = h(
       'form',
       {
         class: 'panel form',
+        oninput: (e: Event) => {
+          if (!(e.target as HTMLElement).closest('.face-designer')) onFieldInput();
+        },
         onsubmit: async (e: Event) => {
           e.preventDefault();
           if (!w.name.trim()) return;
@@ -188,6 +207,7 @@ export function watchFormView(root: HTMLElement, id: string | null): void {
           h('textarea', { rows: 3, oninput: (e: Event) => (w.notes = (e.target as HTMLTextAreaElement).value) }, w.notes),
         ),
       ),
+      designer.el,
       h('div', { class: 'actions' }, h('button', { class: 'btn primary', type: 'submit' }, existing ? 'Save changes' : 'Add watch'), h('a', { class: 'btn', href: existing ? `#/watches/${w.id}` : '#/watches' }, 'Cancel')),
     );
 

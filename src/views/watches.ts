@@ -7,7 +7,7 @@ import { watchArt } from './watch-art';
 import { fmtDate, fmtMs, fmtRate, rateGrade } from '../util/format';
 
 export function watchThumb(w: Watch, cls = 'thumb'): HTMLElement {
-  if (!w.photo) return h('div', { class: `${cls} empty` }, watchArt(w));
+  if (!w.photo || w.face?.preferArt) return h('div', { class: `${cls} empty` }, watchArt(w));
   const img = h('img', { src: photoUrl(w.photo), alt: '' });
   applyCrop(img, w.photoCrop);
   return h('div', { class: cls }, img);
