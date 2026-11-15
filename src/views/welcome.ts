@@ -255,6 +255,13 @@ export function welcomeView(root: HTMLElement): void {
       h('h2', { class: 'welcome-h2' }, 'The most over-engineered image placeholder ever'),
       overkill(),
 
+      h('h2', { class: 'welcome-h2' }, 'A hobbyist’s tool'),
+      h(
+        'p',
+        { class: 'welcome-note' },
+        'Escapement is for keeping an eye on your own watches: is it gaining or losing, is it in beat, has its amplitude dropped since last month? It isn’t a replacement for a professional timegrapher on a watchmaker’s bench. A cheap pickup and a computer’s sound card can’t match a purpose-built microphone and clock, so it goes for a steady, honest reading, with a ± when the signal is noisy, rather than false precision. Take the results as a good guide and a way to spot trends, and leave service decisions to a watchmaker.',
+      ),
+
       h(
         'p',
         { class: 'welcome-foot muted' },

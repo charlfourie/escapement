@@ -33,6 +33,8 @@
 
 No app, no account, no hardware beyond a R199 clip-on pickup (or a quiet room and your laptop's mic). Your data stays in your browser, with optional sync across devices. Don't have a watch to hand? There's a **simulated watch** built in, so you can try everything right now. And every watch without a photo gets [the most over-engineered image placeholder ever](#-the-most-over-engineered-image-placeholder-ever).
 
+> **A hobbyist's tool, not a bench timegrapher.** Escapement is for watch lovers keeping an eye on their own watches: is it gaining or losing, is it in beat, has its amplitude dropped since last month? It's not a replacement for a professional timegrapher on a watchmaker's bench. A cheap piezo pickup and a computer's sound card can't match a purpose-built microphone and clock, so Escapement goes for a steady, honest reading, with a ± when the signal is noisy, over false precision. In a quiet setup the rate is repeatable to a second or two a day, and amplitude is the roughest figure. Treat the results as a good guide and a way to spot trends, and leave service decisions to a watchmaker.
+
 ## 🎧 Measure a watch
 
 <p align="center"><img src="docs/media/measure.gif" alt="Measuring a simulated watch: the trace builds two neat lines sloping gently up while the readouts settle on +4.1 s/d, 0.8 ms and 262°" width="100%"></p>
