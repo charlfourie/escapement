@@ -211,7 +211,7 @@ export function drawWaveform(canvas: HTMLCanvasElement, snippets: number[][], bi
   // The recent ticks as a faint haze; the averaged beat (hundreds of ticks, lined up) on top.
   const raw = snippets.map((s) => smooth(s));
   if (average) {
-    raw.forEach((s) => line(s, 0.1, 1));
+    raw.forEach((s) => line(s, 0.13, 1));
     const avg = smooth(average);
     const peak = Math.max(...avg) || 1;
     ctx.globalAlpha = 0.18;
@@ -222,6 +222,15 @@ export function drawWaveform(canvas: HTMLCanvasElement, snippets: number[][], bi
     ctx.lineTo(pad.l + pw, pad.t + ph);
     ctx.fill();
     line(avg, 1, 1.8);
+    // The latest tick over the average, lined up on its loudest click, so it's visibly live.
+    const last = raw[raw.length - 1];
+    if (last) {
+      const d = avg.indexOf(Math.max(...avg)) - last.indexOf(Math.max(...last));
+      const shifted = last.map((_, i) => last[Math.min(last.length - 1, Math.max(0, i - d))]);
+      ctx.setLineDash([3, 2]);
+      line(shifted, 0.75, 1.1);
+      ctx.setLineDash([]);
+    }
   } else raw.forEach((s, idx) => line(s, idx === raw.length - 1 ? 1 : 0.15, idx === raw.length - 1 ? 1.5 : 1));
   ctx.globalAlpha = 1;
 }

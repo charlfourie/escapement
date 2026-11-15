@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analyze } from '../src/analysis/analyze';
+import { analyze, findSteps } from '../src/analysis/analyze';
 
 // A watch gaining 9 s/day with 2 ms beat error and a little timing noise, like the real Citizen.
 function ticks(n: number, start = 0) {
@@ -61,5 +61,33 @@ describe('dropouts', () => {
     const after = a.points.slice(i, i + 6).filter((p) => !p.odd);
     const gap = Math.abs(after[0].dev - before[before.length - 1].dev);
     expect(gap).toBeLessThan(1);
+  });
+});
+
+describe('steps without a gap', () => {
+  // +31 s/day; at 30 s the detector starts timing from another click: every tick 8 ms early, no gap.
+  function step(rate = 31) {
+    const P = 3600 / 21600;
+    const k = 1 - rate / 86400;
+    let s = 9;
+    const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647 - 0.5) * 0.0004;
+    return Array.from({ length: 360 }, (_, i) => {
+      const t = i * P * k + (i % 2 ? 0.0019 : 0) + rnd();
+      return 5 + t - (t >= 30 ? 0.008 : 0);
+    });
+  }
+  it('keeps the rate right when the line steps without a gap', () => {
+    const a = analyze(step(), { bph: 21600 })!;
+    expect(a.rate).toBeGreaterThan(29);
+    expect(a.rate).toBeLessThan(33);
+  });
+  it('does not mistake a fast watch for steps', () => {
+    for (const rate of [131, -90, 300]) {
+      const P = 3600 / 21600;
+      const k = 1 - rate / 86400;
+      const times = Array.from({ length: 360 }, (_, i) => 5 + i * P * k + (i % 2 ? 0.002 : 0));
+      expect(findSteps(times.map((t) => t - 5), times.map((_, i) => i), P).size).toBe(0);
+      expect(Math.abs(analyze(times, { bph: 21600 })!.rate - rate)).toBeLessThan(Math.max(0.5, Math.abs(rate) * 0.005));
+    }
   });
 });

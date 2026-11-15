@@ -97,6 +97,44 @@ function unwrap(times: number[], period: number, start: number): { sel: number[]
   return { sel, idx };
 }
 
+/**
+ * Where the ticks jump and stay jumped: after a knock or a burst of noise the
+ * detector can start timing each tick from a different click of the beat
+ * (the impulse instead of the drop), shifting every later tick by the gap
+ * between clicks, a few ms. Returns the tick indices where a new stretch
+ * starts. The watch's own drift is taken out first, so a fast or slow watch
+ * isn't mistaken for a step.
+ */
+export function findSteps(ts: number[], ns: number[], P: number): Set<number> {
+  const out = new Set<number>();
+  const n = ts.length;
+  const W = 10;
+  if (n < 3 * W) return out;
+  const r = ts.map((t, i) => t - P * ns[i]);
+  // Robust drift: the median slope over spans of ~20 ticks.
+  const L = Math.min(20, n >> 2);
+  const slopes: number[] = [];
+  for (let i = 0; i + L < n; i++) if (ts[i + L] > ts[i]) slopes.push((r[i + L] - r[i]) / (ts[i + L] - ts[i]));
+  const slope = slopes.length ? median(slopes) : 0;
+  const d0 = r.map((v, i) => v - slope * ts[i]);
+  // Take out the beat error: each side about its own median.
+  const odd = median(d0.filter((_, i) => ns[i] % 2));
+  const even = median(d0.filter((_, i) => !(ns[i] % 2)));
+  const d = d0.map((v, i) => v - (ns[i] % 2 ? odd : even));
+  const noise = 1.4826 * median(d.map((v) => Math.abs(v - median(d))));
+  const minJump = Math.max(0.0025, 6 * Math.min(noise, 0.001));
+  const jump: number[] = new Array(n).fill(0);
+  for (let i = W; i <= n - W; i++) jump[i] = median(d.slice(i, i + W)) - median(d.slice(i - W, i));
+  for (let i = W; i <= n - W; i++) {
+    if (Math.abs(jump[i]) < minJump) continue;
+    // The sharpest point of the jump, once.
+    let best = true;
+    for (let j = Math.max(W, i - W); j <= Math.min(n - W, i + W); j++) if (Math.abs(jump[j]) > Math.abs(jump[i])) best = false;
+    if (best && ![...out].some((k) => Math.abs(k - i) < W)) out.add(i);
+  }
+  return out;
+}
+
 /** Solve least squares for columns given as arrays (small dense normal equations). */
 function lstsq(cols: number[][], y: number[]): number[] | null {
   const k = cols.length;
@@ -163,9 +201,10 @@ export function analyze(allTimes: number[], opts: AnalyzeOptions = {}): Analysis
   const GAP = Math.max(1, 6 * P);
   let seg: number[] = [];
   {
+    const breaks = findSteps(ts, ns, P);
     let k = 0;
     ts.forEach((t, i) => {
-      if (i && t - ts[i - 1] > GAP) k++;
+      if (i && (t - ts[i - 1] > GAP || breaks.has(i))) k++;
       seg.push(k);
     });
     // Too few ticks to place a stretch on its own: leave it out.
