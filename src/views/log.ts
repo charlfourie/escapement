@@ -58,7 +58,7 @@ function describe(e: Entry) {
       sigma: null as number | null,
       result: `${fmtRate(m.rate)} s/d`,
       grade: rateGrade(m.rate),
-      details: [`BE ${fmtMs(m.beatError)} ms`, m.amplitude !== null ? `${Math.round(m.amplitude)}°` : '', POSITIONS[m.position], m.wind !== 'unknown' ? WIND_STATES[m.wind] : '', fmtDuration(m.durationSec)].filter(Boolean).join(' · '),
+      details: [m.rateSpread !== undefined && m.rateSpread >= 0.75 ? `±${m.rateSpread.toFixed(m.rateSpread < 1 ? 1 : 0)} s/d` : '', `BE ${fmtMs(m.beatError)} ms`, m.amplitude !== null ? `${Math.round(m.amplitude)}°` : '', POSITIONS[m.position], m.wind !== 'unknown' ? WIND_STATES[m.wind] : '', fmtDuration(m.durationSec)].filter(Boolean).join(' · '),
       notes: m.notes,
       beatError: m.beatError,
       amplitude: m.amplitude,

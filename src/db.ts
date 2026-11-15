@@ -89,6 +89,8 @@ export interface Measurement {
   beatError: number | null;
   /** Reserved for the amplitude phase. */
   amplitude: number | null;
+  /** How much the rate wandered while measuring (± s/d), from the live readings; older readings: absent. */
+  rateSpread?: number;
   jitter: number;
   ticks: number;
   quality: number;

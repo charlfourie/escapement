@@ -542,3 +542,10 @@ canvas.wave { width: 100%; height: 150px; display: block; background: var(--bg);
 @media (max-width: 760px) { .ott { grid-template-columns: 1fr; } .ott-show { position: static; max-width: 280px; margin: 0 auto; } }
 
 .chip.auto { border-style: dashed; border-color: var(--accent); color: var(--accent); }
+
+/* ---------- settled readouts ---------- */
+.ro-pm { font-size: 0.42em; font-weight: 500; color: var(--muted); margin-left: 6px; letter-spacing: 0; vertical-align: 0.35em; }
+.readout.settling .ro-value { opacity: 0.6; }
+.readout.holding .ro-value, .readout.holding .ro-unit { opacity: 0.4; }
+.readout.holding { border-style: dashed; }
+.trace-all { margin: 6px 0 0; color: var(--muted); }

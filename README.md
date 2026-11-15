@@ -42,6 +42,7 @@ Press **Start** and the classic paper trace draws itself, one dot per tick. Flat
 - **Rate** in s/day, **beat error** in ms, **amplitude** in degrees, and the **beat rate** found for you (14,400 to 36,000 bph)
 - **Auto-tune** listens through 12 filter and trigger combinations at once and locks onto whichever hears a clean beat. No sliders.
 - **Built for noise:** every tick is shape-matched against the average beat, so a missed click doesn't throw the reading off. Optional noise reduction handles fans and hum.
+- **Readouts that settle:** the numbers show a steady figure with an honest ± (tenths only when the signal earns them), hold through a brief loss of the beat instead of blanking, and still follow a real change within seconds. Stray ticks are kept off the trace (one tick to show them all), and the tick panel shows the averaged beat, with the unlock, impulse and drop clicks clearly separated.
 - **Six-position test:** dial up, dial down and four crown positions, guided, with the average rate and positional delta
 
 ## ⌚ Your collection

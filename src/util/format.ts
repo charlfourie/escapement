@@ -1,6 +1,6 @@
 import { COSC } from '../analysis/analyze';
 
-export const fmtRate = (r: number) => `${r >= 0 ? '+' : '−'}${Math.abs(r).toFixed(1)}`;
+export const fmtRate = (r: number, decimals = 1) => `${r >= 0 ? '+' : '−'}${Math.abs(r).toFixed(decimals)}`;
 export const fmtMs = (v: number | null) => (v === null ? '—' : v.toFixed(1));
 export const fmtBph = (b: number) => b.toLocaleString('en-US');
 export const fmtHz = (b: number) => `${(b / 7200).toFixed(1).replace(/\.0$/, '')} Hz`;

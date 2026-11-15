@@ -9,7 +9,8 @@ import { liftFromEnvelope } from '../analysis/lift';
 import { PositionTest, SETTLE_SEC, STEP_SEC } from './position-test';
 import { blankWatch, db, isTimegraphable, newId, POSITIONS, WIND_STATES, type Measurement, type Position, type Watch, type WindState } from '../db';
 import { loadPrefs, savePrefs } from '../prefs';
-import { drawTrace, drawWaveform, fitSpan } from '../ui/canvas';
+import { cleanTrace, drawTrace, drawWaveform, fitSpan } from '../ui/canvas';
+import { plusMinus, Settler, type Settled } from '../analysis/settle';
 import { downloadBlob, encodeWav, h, select, toast } from '../util/dom';
 import { beatErrorGrade, fmtBph, fmtDuration, fmtHz, fmtMs, fmtRate, gradeLabel, rateGrade } from '../util/format';
 
@@ -62,6 +63,15 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
   let lifts: Array<number | null> = [];
   let aligner = new TickAligner(SNIPPET_BIN_MS);
   let snippets: number[][] = [];
+  // What's shown, as opposed to what's measured: steady values with a ±.
+  const settle = {
+    rate: new Settler({ fineSpread: 0.5, minShift: 2 }),
+    be: new Settler({ fineSpread: 0.15, minShift: 0.4 }),
+    amp: new Settler({ fineSpread: 3, minShift: 12, maxDecimals: 0 }),
+  };
+  /** When the readouts last had a reading, for holding them through a short dropout. */
+  let lastGoodAt = 0;
+  const HOLD_MS = 10_000;
   let liveAmp: AmplitudeResult | null = null;
   let fullAmp: AmplitudeResult | null = null;
   let mode: Mode = query.get('mode') === 'test' ? 'test' : 'single';
@@ -165,6 +175,20 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
       h('div', { class: 'chips', title: 'Vertical range (ms)' }, spanBtns, h('span', { class: 'chip-label' }, 'ms')),
     ),
     traceCanvas,
+    h(
+      'label',
+      { class: 'check small trace-all' },
+      h('input', {
+        type: 'checkbox',
+        checked: prefs.traceAll,
+        onchange: (e: Event) => {
+          prefs.traceAll = (e.target as HTMLInputElement).checked;
+          savePrefs({ traceAll: prefs.traceAll });
+          dirty = true;
+        },
+      }),
+      'Show every tick (strays included)',
+    ),
     h('p', { class: 'hint' }, 'Flat line = accurate. Sloping up = gaining, down = losing. Two separate lines = beat error.'),
   );
 
@@ -439,12 +463,14 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
       if (l !== null && l !== undefined) ls.push(l);
     }
     const perTick = amplitudeFrom(ls, bph, liftAngle());
-    if (perTick) return perTick;
-    // Too noisy to time the clicks on single ticks: try the averaged beat.
+    // Steady single-tick timing is the best figure; when it's missing or
+    // unsteady (noise smearing the quiet unlock click), the averaged beat of
+    // a few hundred lined-up ticks is far steadier.
+    if (perTick && perTick.spread <= 30) return perTick;
     const avg = autolock ? autolock.template(lock?.index ?? 0) : aligner.average;
     const tl = avg ? liftFromEnvelope(avg, SNIPPET_BIN_MS) : null;
     const a = tl ? amplitudeFromLift(tl.lift, bph, liftAngle()) : null;
-    return a ? { amplitude: a, spread: 0, samples: ls.length, averaged: true } : null;
+    return a ? { amplitude: a, spread: 0, samples: ls.length, averaged: true } : perTick;
   }
 
   async function setMode(m: Mode) {
@@ -557,6 +583,8 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
   async function start() {
     if (mode === 'test' && test.done) test.reset();
     state = 'starting';
+    for (const st of Object.values(settle)) st.reset();
+    lastGoodAt = 0;
     times = [];
     lifts = [];
     aligner = new TickAligner(SNIPPET_BIN_MS);
@@ -651,37 +679,72 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
     }
     const r = state === 'stopped' ? full : live;
     const amp = state === 'stopped' ? fullAmp : liveAmp;
-    if (r && amp) {
-      roAmp.value.textContent = String(Math.round(amp.amplitude));
-      roAmp.el.dataset.grade = amplitudeGrade(amp.amplitude);
-      roAmp.sub.textContent = `lift angle ${liftAngle()}°${amp.averaged ? ' · from averaged ticks' : amp.spread > 30 ? ' · unsteady' : ''}`;
-    } else {
-      roAmp.value.textContent = '—';
-      delete roAmp.el.dataset.grade;
-      roAmp.sub.textContent = r ? 'Can’t separate the clicks yet' : ' ';
+    const running = state === 'running';
+    if (running && recompute && r) {
+      settle.rate.push(r.rate);
+      settle.be.push(r.beatError);
+      settle.amp.push(amp?.amplitude);
+      lastGoodAt = performance.now();
     }
-    if (r) {
-      const g = rateGrade(r.rate);
-      roRate.value.textContent = fmtRate(r.rate);
-      roRate.el.dataset.grade = g;
-      roRate.sub.textContent = gradeLabel[g];
-      roBE.value.textContent = fmtMs(r.beatError);
-      roBE.el.dataset.grade = beatErrorGrade(r.beatError);
-      roBE.sub.textContent = r.beatError === null ? 'Only one tick side heard' : r.beatError <= 0.6 ? 'In beat' : 'Slightly out of beat';
-      if (r.beatError !== null && r.beatError > 1.5) roBE.sub.textContent = 'Out of beat';
-      roBph.value.textContent = fmtBph(r.bph);
-      roBph.sub.textContent = `${fmtHz(r.bph)} · ${bphSetting ? 'set' : 'detected'}`;
-      stQuality.textContent = `${Math.round(r.quality * 100)}%`;
-      stJitter.textContent = `${r.jitter.toFixed(2)} ms`;
+    // A short dropout: keep the last good values on screen, greyed out.
+    const holding = running && !r && lastGoodAt > 0 && performance.now() - lastGoodAt < HOLD_MS;
+    const show = (ro: ReturnType<typeof readout>, text: string, pm: string) => ro.value.replaceChildren(text, pm ? h('span', { class: 'ro-pm' }, pm) : '');
+    // While running, the settled value; once stopped, the whole run's fit, with the ± seen while running.
+    const val = (st: Settler, exact: number | null | undefined): Settled | null => {
+      const g = st.get();
+      if (running || holding) return g;
+      if (exact === null || exact === undefined) return null;
+      return { value: exact, spread: g?.spread ?? Infinity, settled: true, decimals: g ? g.decimals : 1 };
+    };
+    const settling = running && !holding && !!r && !(settle.rate.get()?.settled ?? false);
+    for (const ro of [roRate, roBE, roBph, roAmp]) {
+      ro.el.classList.toggle('holding', holding);
+      ro.el.classList.toggle('settling', settling);
+    }
+
+    if (r || holding) {
+      const rate = val(settle.rate, r?.rate);
+      if (rate) {
+        const g = rateGrade(rate.value);
+        show(roRate, fmtRate(rate.value, rate.decimals), plusMinus(rate, 0.75));
+        roRate.el.dataset.grade = g;
+        roRate.sub.textContent = holding ? 'Holding · finding the beat again…' : settling ? 'Settling…' : gradeLabel[g];
+      }
+      const be = val(settle.be, r?.beatError);
+      if (be) {
+        show(roBE, be.value.toFixed(1), plusMinus(be, 0.25));
+        roBE.el.dataset.grade = beatErrorGrade(be.value);
+        roBE.sub.textContent = be.value <= 0.6 ? 'In beat' : be.value > 1.5 ? 'Out of beat' : 'Slightly out of beat';
+      } else if (r) {
+        show(roBE, '—', '');
+        roBE.sub.textContent = 'Only one tick side heard';
+      }
+      if (r) {
+        roBph.value.textContent = fmtBph(r.bph);
+        roBph.sub.textContent = `${fmtHz(r.bph)} · ${bphSetting ? 'set' : 'detected'}`;
+        stQuality.textContent = `${Math.round(r.quality * 100)}%`;
+        stJitter.textContent = `${r.jitter.toFixed(2)} ms`;
+      }
+      const a = val(settle.amp, amp?.amplitude);
+      if (a) {
+        show(roAmp, String(Math.round(a.value)), plusMinus(a, 6));
+        roAmp.el.dataset.grade = amplitudeGrade(a.value);
+        roAmp.sub.textContent = `lift angle ${liftAngle()}°${amp?.averaged ? ' · from averaged ticks' : ''}`;
+      } else {
+        show(roAmp, '—', '');
+        delete roAmp.el.dataset.grade;
+        roAmp.sub.textContent = 'Can’t separate the clicks yet';
+      }
     } else {
-      for (const ro of [roRate, roBE, roBph]) {
-        ro.value.textContent = '—';
+      for (const ro of [roRate, roBE, roBph, roAmp]) {
+        show(ro, '—', '');
         delete ro.el.dataset.grade;
       }
-      const sub = state === 'running' ? (autolock ? 'Searching for the beat…' : 'Listening…') : ' ';
+      const sub = running ? (autolock ? 'Searching for the beat…' : 'Listening…') : ' ';
       roRate.sub.textContent = sub;
-      roBE.sub.textContent = ' ';
-      roBph.sub.textContent = ' ';
+      roBE.sub.textContent = ' ';
+      roBph.sub.textContent = ' ';
+      roAmp.sub.textContent = ' ';
       stQuality.textContent = '—';
       stJitter.textContent = '—';
     }
@@ -702,8 +765,9 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
       b.classList.toggle('auto', SPANS[i] === span && span !== prefs.traceSpan);
       b.title = SPANS[i] === span && span !== prefs.traceSpan ? 'Zoomed out to fit the trace' : '';
     });
-    drawTrace(traceCanvas, pts, { spanMs: span, windowSec: null, message: msg });
-    drawWaveform(waveCanvas, snippets, SNIPPET_BIN_MS, SNIPPET_PRE_MS);
+    drawTrace(traceCanvas, prefs.traceAll ? pts : cleanTrace(pts), { spanMs: span, windowSec: null, message: msg });
+    const avg = autolock ? autolock.template(lock?.index ?? 0) : aligner.average;
+    drawWaveform(waveCanvas, snippets, SNIPPET_BIN_MS, SNIPPET_PRE_MS, avg && avg.length === (snippets[0]?.length ?? avg.length) ? avg : null);
   }
 
   function renderState() {
@@ -772,6 +836,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
       rate: r.rate,
       beatError: r.beatError,
       amplitude: fullAmp?.amplitude ?? null,
+      ...(Number.isFinite(settle.rate.get()?.spread ?? NaN) ? { rateSpread: Math.round(settle.rate.get()!.spread * 10) / 10 } : {}),
       jitter: r.jitter,
       ticks: r.ticks,
       quality: r.quality,

@@ -100,6 +100,27 @@ export function drawTrace(canvas: HTMLCanvasElement, points: TracePoint[], opts:
 }
 
 /**
+ * The trace without its strays: ticks that sit well off their own line (tic
+ * or toc), judged against their neighbours, so a click from the room or a
+ * mistimed tick doesn't scatter dots across the chart. Display only.
+ */
+export function cleanTrace(points: TracePoint[]): TracePoint[] {
+  const out: TracePoint[] = [];
+  for (const odd of [false, true]) {
+    const side = points.filter((p) => p.odd === odd);
+    const W = 9;
+    side.forEach((p, i) => {
+      const win = side.slice(Math.max(0, i - W), i + W + 1).map((q) => q.dev);
+      const s = [...win].sort((a, b) => a - b);
+      const m = s[s.length >> 1];
+      const mad = [...win.map((v) => Math.abs(v - m))].sort((a, b) => a - b)[win.length >> 1];
+      if (Math.abs(p.dev - m) <= Math.max(3 * 1.4826 * mad, 0.25)) out.push(p);
+    });
+  }
+  return out.sort((a, b) => a.t - b.t);
+}
+
+/**
  * The trace scale to draw at: the chosen one, or the next wider one if the
  * trace has drifted off it (a fast or slow watch climbs off the chart in a
  * minute at ±5 ms). Past the widest it wraps, like timegrapher paper.
@@ -112,7 +133,7 @@ export function fitSpan(points: TracePoint[], chosen: number, spans: number[]): 
 }
 
 /** Overlay of recent tick envelopes — shows the unlock / impulse / drop clicks. */
-export function drawWaveform(canvas: HTMLCanvasElement, snippets: number[][], binMs: number, preMs: number): void {
+export function drawWaveform(canvas: HTMLCanvasElement, snippets: number[][], binMs: number, preMs: number, average: number[] | null = null): void {
   const { ctx, w, h } = prep(canvas);
   const pad = { l: 10, r: 10, t: 8, b: 20 };
   const pw = w - pad.l - pad.r;
@@ -125,7 +146,7 @@ export function drawWaveform(canvas: HTMLCanvasElement, snippets: number[][], bi
   ctx.strokeStyle = css('--grid');
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
-  const n = snippets[0]?.length ?? Math.round(24 / binMs);
+  const n = average?.length ?? snippets[0]?.length ?? Math.round(24 / binMs);
   const totalMs = n * binMs;
   for (let ms = 0; ms <= totalMs - preMs; ms += 5) {
     const x = pad.l + ((ms + preMs) / totalMs) * pw;
@@ -135,21 +156,47 @@ export function drawWaveform(canvas: HTMLCanvasElement, snippets: number[][], bi
     ctx.stroke();
     ctx.fillText(`${ms}ms`, x, pad.t + ph + 5);
   }
-  if (!snippets.length) return;
+  if (!snippets.length && !average) return;
 
-  snippets.forEach((s, idx) => {
+  // A light moving average for display (about ±0.3 ms), so hiss doesn't read as clicks.
+  const smooth = (s: number[], k = Math.max(1, Math.round(0.3 / binMs))) =>
+    s.map((_, i) => {
+      let sum = 0;
+      let c = 0;
+      for (let j = Math.max(0, i - k); j <= Math.min(s.length - 1, i + k); j++) {
+        sum += s[j];
+        c++;
+      }
+      return sum / c;
+    });
+  const line = (s: number[], alpha: number, width: number) => {
     const peak = Math.max(...s) || 1;
-    ctx.globalAlpha = idx === snippets.length - 1 ? 1 : 0.18;
+    ctx.globalAlpha = alpha;
     ctx.strokeStyle = accent;
-    ctx.lineWidth = idx === snippets.length - 1 ? 1.5 : 1;
+    ctx.lineWidth = width;
     ctx.beginPath();
     s.forEach((v, i) => {
       const x = pad.l + (i / (s.length - 1)) * pw;
-      const y = pad.t + ph - (v / peak) * ph;
+      const y = pad.t + ph - (v / peak) * ph * 0.92;
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     });
     ctx.stroke();
-  });
+  };
+  // The recent ticks as a faint haze; the averaged beat (hundreds of ticks, lined up) on top.
+  const raw = snippets.map((s) => smooth(s));
+  if (average) {
+    raw.forEach((s) => line(s, 0.1, 1));
+    const avg = smooth(average);
+    const peak = Math.max(...avg) || 1;
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = accent;
+    ctx.beginPath();
+    ctx.moveTo(pad.l, pad.t + ph);
+    avg.forEach((v, i) => ctx.lineTo(pad.l + (i / (avg.length - 1)) * pw, pad.t + ph - (v / peak) * ph * 0.92));
+    ctx.lineTo(pad.l + pw, pad.t + ph);
+    ctx.fill();
+    line(avg, 1, 1.8);
+  } else raw.forEach((s, idx) => line(s, idx === raw.length - 1 ? 1 : 0.15, idx === raw.length - 1 ? 1.5 : 1));
   ctx.globalAlpha = 1;
 }

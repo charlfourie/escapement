@@ -11,6 +11,8 @@ export interface Prefs {
   /** Spectral noise reduction ahead of the detectors. */
   denoise: boolean;
   traceSpan: number;
+  /** Draw every tick on the trace, strays included. */
+  traceAll: boolean;
   sim: SimParams;
   lastWatch: string;
   /** Position the last single reading was taken in, the default for the next. */
@@ -26,6 +28,7 @@ const DEFAULTS: Prefs = {
   autoTrigger: true,
   denoise: false,
   traceSpan: 10,
+  traceAll: false,
   sim: DEFAULT_SIM,
   lastWatch: '',
   lastPosition: 'DU',
