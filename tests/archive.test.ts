@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { convert } from '../scripts/import-archive';
 import { findMovement, setArchive } from '../src/data/movements';
 import type { ArchiveRec } from '../src/data/archive-types';
@@ -34,13 +34,13 @@ describe('archive importer', () => {
 
 describe('archive lookup', () => {
   const rec = (s: string, n: string, m: string, c: string): ArchiveRec => ({ s, n, m, c, t: 'manual', b: 18000, e: 'lever' });
-  setArchive([
+  beforeAll(() => setArchive([
     rec('citizen-miyota-8200', 'Citizen / Miyota 8200', 'Citizen / Miyota', '8200'),
     rec('bulova-11do', 'Bulova 11DO = Caravelle 11DO = Citizen 0240', 'Bulova / Caravelle / Citizen', 'Bulova 11DO = Caravelle 11DO = Citizen 0240'),
     rec('as-40', 'AS 40', 'AS', '40'),
     rec('am-40', 'AM 40', 'AM', '40'),
     rec('unitas-6497', 'Unitas 6497', 'Unitas', '6497'),
-  ]);
+  ]));
   const id = (c: string, b = '') => findMovement(c, b)?.id;
 
   it('matches maker + caliber however typed', () => {
@@ -60,5 +60,36 @@ describe('archive lookup', () => {
   it('prefers the sourced library', () => {
     expect(id('6497')).toBe('unitas-6497-1');
     expect(findMovement('ETA 2824')?.liftAngle).toBe(50);
+  });
+});
+
+describe('movement finder', () => {
+  const rec = (s: string, n: string, m: string, c: string, t: 'manual' | 'automatic', b: number): ArchiveRec => ({ s, n, m, c, t, b, e: 'lever' });
+  let all: ReturnType<typeof setArchive> = [];
+  beforeAll(() => { all = setArchive([
+    rec('citizen-miyota-8200', 'Citizen / Miyota 8200', 'Citizen / Miyota', '8200', 'automatic', 21600),
+    rec('citizen-6000', 'Citizen 6000', 'Citizen', '6000', 'automatic', 21600),
+    rec('citizen-8110a', 'Citizen 8110A', 'Citizen', '8110A', 'automatic', 28800),
+    rec('citizen-1121', 'Citizen 1121 B', 'Citizen', '1121 B', 'manual', 18000),
+    rec('as-1700', 'AS 1700', 'AS', '1700', 'automatic', 21600),
+    rec('miyota-8215', 'Miyota 8215', 'Miyota', '8215', 'automatic', 21600),
+  ]); });
+
+  it('narrows by maker, winding and beat rate', async () => {
+    const { movementCandidates, REFERENCE_MOVEMENTS } = await import('../src/data/movements');
+    const { byBrand, others } = movementCandidates({ brand: 'Citizen', type: 'automatic', bph: 21600 }, [...REFERENCE_MOVEMENTS, ...all]);
+    const ids = byBrand.map((m) => m.id);
+    expect(ids).toEqual(expect.arrayContaining(['wma-citizen-miyota-8200', 'wma-citizen-6000', 'miyota-8215']));
+    expect(ids).not.toContain('wma-citizen-8110a');
+    expect(ids).not.toContain('wma-miyota-8215'); // the sourced entry covers it
+    expect(ids).not.toContain('wma-citizen-1121');
+    expect(others.map((m) => m.id)).toContain('wma-as-1700');
+  });
+
+  it('stores a short caliber that still finds the movement', async () => {
+    const { caliberFor, findMovement } = await import('../src/data/movements');
+    const m = all.find((x) => x.id === 'wma-citizen-miyota-8200')!;
+    expect(caliberFor(m, 'Citizen')).toBe('8200');
+    expect(findMovement('8200', 'Citizen')?.id).toBe(m.id);
   });
 });

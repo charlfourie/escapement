@@ -4,6 +4,7 @@ import { h, toast } from '../util/dom';
 import { fmtBph, fmtDate, fmtRate, rateGrade, ranfftUrl } from '../util/format';
 import { ARCHIVE_URL, escapementNote, findMovement, loadArchive, REFERENCE_MOVEMENTS, referenceByIdAsync, type RefMovement } from '../data/movements';
 import { MOVEMENT_TYPES, upsertMovement } from '../db';
+import { testedMovements, testedSummary, type TestedInfo } from '../data/tested';
 
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 
@@ -117,7 +118,8 @@ export function movementsView(root: HTMLElement): void {
 
 /** Searchable table: the sourced library plus Watch Movements Archive. */
 function referenceLibrary(watches: Watch[]): HTMLElement {
-  type Source = '' | 'lib' | 'wma';
+  type Source = '' | 'lib' | 'wma' | 'tested';
+  let tested = new Map<string, TestedInfo>();
   let source: Source = '';
   let query = '';
   let shown = PAGE;
@@ -133,7 +135,8 @@ function referenceLibrary(watches: Watch[]): HTMLElement {
 
   const render = () => {
     const q = query.trim().toLowerCase();
-    const rows = all.filter((m) => (!source || (source === 'wma') === !!m.archive) && (!q || matches(m, q)));
+    const bySource = (m: RefMovement) => !source || (source === 'tested' ? tested.has(m.id) : (source === 'wma') === !!m.archive);
+    const rows = all.filter((m) => bySource(m) && (!q || matches(m, q)));
     count.textContent = `${rows.length.toLocaleString()} of ${all.length.toLocaleString()}`;
     tbody.replaceChildren(
       ...rows.slice(0, shown).map((m) =>
@@ -144,7 +147,11 @@ function referenceLibrary(watches: Watch[]): HTMLElement {
             'td',
             null,
             h('a', { href: `#/movements/${m.id}` }, h('strong', null, m.archive ? m.caliber : `${m.maker.split(/[ (]/)[0]} ${m.caliber}`)),
-            owned.has(m.id) ? h('span', { class: 'ref-owned', title: 'One of your watches has this movement' }, ' ●') : '',
+            tested.has(m.id)
+              ? h('span', { class: 'tested-tag', title: `Tested with Escapement: ${testedSummary(tested.get(m.id)!)}` }, 'Tested')
+              : owned.has(m.id)
+                ? h('span', { class: 'ref-owned', title: 'One of your watches has this movement' }, ' ●')
+                : '',
           ),
           h('td', { class: 'hide-sm' }, MOVEMENT_TYPES[m.type]),
           h('td', { class: 'num' }, m.bph ? `${fmtBph(m.bph)}${m.archive?.bphUnsure ? '?' : ''}` : '—'),
@@ -177,12 +184,13 @@ function referenceLibrary(watches: Watch[]): HTMLElement {
       },
       label,
     );
-  const chips = h('div', { class: 'fd-chips' }, chip('', 'All'), chip('lib', 'With lift angles'), chip('wma', 'Watch Movements Archive'));
+  const chips = h('div', { class: 'fd-chips' }, chip('', 'All'), chip('tested', 'Tested by you'), chip('lib', 'With lift angles'), chip('wma', 'Watch Movements Archive'));
   render();
   // The archive loads on demand.
-  void loadArchive().then((arc) => {
+  void loadArchive().then(async (arc) => {
     all = [...REFERENCE_MOVEMENTS, ...arc];
     owned = ownedIds();
+    tested = await testedMovements();
     render();
   });
   return h(
@@ -213,6 +221,19 @@ function referenceLibrary(watches: Watch[]): HTMLElement {
 }
 
 const PAGE = 60;
+
+/** Your watches with this movement, and whether you've tested it with Escapement. */
+function testedPanel(watches: Watch[], t: TestedInfo | undefined): HTMLElement | string {
+  if (!watches.length) return '';
+  const counts = new Map(t?.watches.map((x) => [x.watch.id, testedSummary({ ...t, watches: [], readings: x.readings, quartzTests: x.quartzTests })]) ?? []);
+  return h(
+    'section',
+    { class: 'panel' },
+    h('header', { class: 'panel-head' }, h('h2', null, 'Your watches with this movement'), t ? h('span', { class: 'tested-tag' }, 'Tested') : ''),
+    t ? h('p', { class: 'muted small' }, `Tested with Escapement: ${testedSummary(t)}.`) : h('p', { class: 'muted small' }, 'Not tested yet. Measure one of these watches and this movement gets tagged as tested.'),
+    h('ul', null, watches.map((w) => h('li', null, h('a', { href: `#/watches/${w.id}` }, w.name), counts.get(w.id) ? h('span', { class: 'muted small' }, ` · ${counts.get(w.id)}`) : ''))),
+  );
+}
 const ESCAPEMENTS = { lever: 'Lever', cylinder: 'Cylinder', pin: 'Pin lever', fork: 'Tuning fork', '': '' } as const;
 const fullText = (m: RefMovement) => [m.features, m.archive?.country, m.archive?.years, m.archive?.escapement && ESCAPEMENTS[m.archive.escapement]].join(' ').toLowerCase();
 
@@ -281,9 +302,7 @@ export function movementDetailView(root: HTMLElement, rawId: string): void {
           h('a', { class: 'back', href: '#/movements' }, '← All movements'),
           h('header', { class: 'page-head' }, h('div', null, h('h1', null, r.archive ? r.caliber : `Caliber ${r.caliber}`), h('p', { class: 'muted' }, r.archive ? [r.archive.country, r.archive.years].filter(Boolean).join(' · ') : r.maker))),
           referenceCard(r, 'Specs'),
-          watches.length
-            ? h('section', { class: 'panel' }, h('h2', null, 'Your watches with this movement'), h('ul', null, watches.map((w) => h('li', null, h('a', { href: `#/watches/${w.id}` }, w.name)))))
-            : '',
+          testedPanel(watches, (await testedMovements()).get(r.id)),
           h(
             'div',
             { class: 'actions' },

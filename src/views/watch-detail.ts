@@ -6,7 +6,8 @@ import { historyChart } from '../ui/history-chart';
 import { h, toast } from '../util/dom';
 import { fmtBph, fmtDate, fmtDateTime, fmtDuration, fmtMs, fmtRate, rateGrade, ranfftUrl } from '../util/format';
 import { watchThumb } from './watches';
-import { escapementNote, findMovement } from '../data/movements';
+import { escapementNote, findMovement, loadArchive } from '../data/movements';
+import { movementFinder } from './movement-finder';
 
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
@@ -34,6 +35,7 @@ export function watchDetailView(root: HTMLElement, id: string): void {
     ).filter(([, v]) => v);
 
     // The caliber's documented lift angle differs from the watch's: amplitude would be off.
+    await loadArchive();
     const ref = findMovement(w.caliber, w.brand);
     const liftHint = () => {
       const note = ref ? escapementNote(ref) : '';
@@ -192,6 +194,13 @@ export function watchDetailView(root: HTMLElement, id: string): void {
             ),
           ),
         ),
+        // A mechanical watch without a known caliber: help find it.
+        mech &&
+          !ref &&
+          movementFinder(w, ms, () => {
+            root.replaceChildren();
+            watchDetailView(root, id);
+          }),
         // Quartz: acoustic tests and time checks are the measurement, plus the
         // battery log. Mechanical: timegrapher first, time checks after.
         !mech && quartzTestsPanel(w),

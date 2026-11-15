@@ -44,6 +44,8 @@ export interface RefMovement {
     bphUnsure?: boolean;
     hz?: string;
     identification?: string;
+    /** The archive's caliber field ("8200"). */
+    code?: string;
   };
 }
 
@@ -175,6 +177,7 @@ export function fromArchive(r: ArchiveRec): RefMovement {
       bphUnsure: !!r.bq,
       hz: r.hz,
       identification: r.id,
+      code: r.c && !r.c.includes('=') ? r.c : undefined,
     },
   };
 }
@@ -275,4 +278,50 @@ export function escapementNote(m: RefMovement): string {
     default:
       return m.type === 'quartz' ? 'Quartz: a timegrapher can’t read it. Use time checks.' : '';
   }
+}
+
+
+// ---------------------------------------------------------------------------
+// Finding a watch's movement from what we know about it.
+
+/** Brands whose own movements go by another maker name too. */
+const BRAND_MAKERS: Record<string, string[]> = {
+  citizen: ['citizen', 'miyota'],
+  miyota: ['citizen', 'miyota'],
+  seiko: ['seiko', 'sii', 'tmi'],
+};
+
+export interface FinderInput {
+  brand: string;
+  type?: string;
+  bph?: number | null;
+}
+
+/**
+ * Movements that could be in a watch: same winding type and beat rate.
+ * `byBrand` are the ones from the watch's own maker (Citizen → Citizen and
+ * Miyota); `others` the rest, for brands that fitted other makers' movements.
+ */
+export function movementCandidates(w: FinderInput, all: RefMovement[]): { byBrand: RefMovement[]; others: RefMovement[] } {
+  const b = fullKey(w.brand);
+  const makers = BRAND_MAKERS[b] ?? (b ? [b] : []);
+  const fits = (m: RefMovement) =>
+    m.type !== 'quartz' && (!w.type || (w.type !== 'automatic' && w.type !== 'manual') || m.type === w.type) && (!w.bph || m.bph === w.bph);
+  const byBrand: RefMovement[] = [];
+  const others: RefMovement[] = [];
+  for (const m of all) {
+    if (!fits(m)) continue;
+    // An archive entry for a caliber the sourced library already has (it has the lift angle).
+    if (m.archive && findReference(m.caliber)) continue;
+    const mk = fullKey(m.maker);
+    (makers.some((x) => mk.includes(x)) ? byBrand : others).push(m);
+  }
+  return { byBrand, others };
+}
+
+/** The caliber to store on a watch for a chosen movement: short where it still matches. */
+export function caliberFor(m: RefMovement, brand: string): string {
+  const short = m.archive ? m.archive.code : m.caliber;
+  if (short && findMovement(short, brand)?.id === m.id) return short;
+  return m.caliber;
 }
