@@ -2,6 +2,8 @@ import { STANDARD_BPH } from '../analysis/analyze';
 import { db, movementId, type Measurement, type Movement, type Watch } from '../db';
 import { h, toast } from '../util/dom';
 import { fmtBph, fmtDate, fmtRate, rateGrade, ranfftUrl } from '../util/format';
+import { findReference, REFERENCE_MOVEMENTS, referenceById, type RefMovement } from '../data/movements';
+import { MOVEMENT_TYPES, upsertMovement } from '../db';
 
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 
@@ -39,34 +41,30 @@ const ranfftLink = (m: Movement, text = 'Ranfft DB ↗') => h('a', { href: ranff
 
 export function movementsView(root: HTMLElement): void {
   const host = h('div');
+  const refHost = h('div');
   root.append(
     h(
       'div',
       { class: 'page' },
       h('header', { class: 'page-head' }, h('h1', null, 'Movements')),
-      h('p', { class: 'muted' }, 'Your own movement library: one entry per caliber, built from the watches you add, with your timing results across every watch that uses it. Each links to Ranfft DB for reference.'),
+      h('p', { class: 'muted' }, 'Your movements, built from the calibers of your watches with your timing results across every watch that uses each one. Below them, a reference library of common calibers with the beat rate and lift angle a timegrapher needs.'),
       host,
+      refHost,
     ),
   );
 
   void (async () => {
-    const { movements, stats } = await loadAll();
+    const [{ movements, stats }, watches] = await Promise.all([loadAll(), db.watches.toArray()]);
     if (!movements.length) {
-      host.replaceWith(
-        h(
-          'div',
-          { class: 'empty-state' },
-          h('h2', null, 'No movements yet'),
-          h('p', null, 'Give a watch a caliber (or let “Identify with AI” find it) and its movement appears here.'),
-          h('div', { class: 'actions' }, h('a', { class: 'btn primary', href: '#/watches' }, 'Go to your watches')),
-        ),
+      host.replaceChildren(
+        h('section', { class: 'panel' }, h('h2', null, 'Your movements'), h('p', { class: 'muted' }, 'None yet. Give a watch a caliber (or let “Identify with AI” find it) and its movement appears here.')),
       );
-      return;
-    }
-    host.replaceChildren(
+    } else {
+      host.replaceChildren(
       h(
         'section',
         { class: 'panel' },
+        h('h2', null, 'Your movements'),
         h(
           'div',
           { class: 'table-wrap' },
@@ -111,8 +109,109 @@ export function movementsView(root: HTMLElement): void {
           ),
         ),
       ),
-    );
+      );
+    }
+    refHost.replaceChildren(referenceLibrary(watches));
   })();
+}
+
+/** Searchable table of the reference movements. */
+function referenceLibrary(watches: Watch[]): HTMLElement {
+  const makers = [...new Set(REFERENCE_MOVEMENTS.map((m) => m.maker.split(/[ (/]/)[0]))];
+  let maker = '';
+  let query = '';
+  const tbody = h('tbody');
+  const count = h('span', { class: 'muted small' });
+  const owned = new Set(watches.map((w) => findReference(w.caliber)?.id).filter(Boolean));
+
+  const render = () => {
+    const q = query.trim().toLowerCase();
+    const rows = REFERENCE_MOVEMENTS.filter(
+      (m) => (!maker || m.maker.startsWith(maker)) && (!q || [m.caliber, m.maker, ...(m.aliases ?? []), m.basedOn ?? ''].some((x) => x.toLowerCase().includes(q))),
+    );
+    count.textContent = `${rows.length} of ${REFERENCE_MOVEMENTS.length}`;
+    tbody.replaceChildren(
+      ...rows.map((m) =>
+        h(
+          'tr',
+          null,
+          h('td', null, h('a', { href: `#/movements/${m.id}` }, h('strong', null, m.caliber)), owned.has(m.id) ? h('span', { class: 'ref-owned', title: 'One of your watches has this movement' }, ' ●') : ''),
+          h('td', { class: 'hide-sm' }, m.maker),
+          h('td', { class: 'hide-sm' }, MOVEMENT_TYPES[m.type]),
+          h('td', { class: 'num' }, fmtBph(m.bph)),
+          h('td', { class: 'num' }, m.liftAngle ? `${m.liftAngle}°${m.coAxial ? ' *' : ''}` : '—'),
+          h('td', { class: 'num hide-sm' }, m.jewels ?? '—'),
+          h('td', { class: 'num hide-sm' }, m.powerReserveH ? `${m.powerReserveH} h` : '—'),
+        ),
+      ),
+    );
+  };
+
+  const chips = h(
+    'div',
+    { class: 'fd-chips' },
+    [['', 'All'], ...makers.map((x) => [x, x])].map(([v, label]) =>
+      h(
+        'button',
+        {
+          type: 'button',
+          class: `fd-chip${v === maker ? ' active' : ''}`,
+          onclick: (e: Event) => {
+            maker = v;
+            chips.querySelectorAll('.fd-chip').forEach((c) => c.classList.toggle('active', c === e.currentTarget));
+            render();
+          },
+        },
+        label,
+      ),
+    ),
+  );
+  render();
+  return h(
+    'section',
+    { class: 'panel' },
+    h('header', { class: 'panel-head' }, h('h2', null, 'Reference library'), count),
+    h('p', { class: 'muted small' }, 'Common calibers and their specs, each with its source. A lift angle is only listed where it’s documented; a wrong one skews amplitude by about 6° per degree. * Co-axial: rate reads normally, amplitude only roughly.'),
+    h('div', { class: 'ref-filters' }, h('input', { type: 'search', placeholder: 'Search, e.g. 2824, NH35, Valjoux', oninput: (e: Event) => ((query = (e.target as HTMLInputElement).value), render()) }), chips),
+    h(
+      'div',
+      { class: 'table-wrap' },
+      h(
+        'table',
+        { class: 'table' },
+        h('thead', null, h('tr', null, h('th', null, 'Caliber'), h('th', { class: 'hide-sm' }, 'Maker'), h('th', { class: 'hide-sm' }, 'Type'), h('th', { class: 'num' }, 'bph'), h('th', { class: 'num' }, 'Lift angle'), h('th', { class: 'num hide-sm' }, 'Jewels'), h('th', { class: 'num hide-sm' }, 'Reserve'))),
+        tbody,
+      ),
+    ),
+  );
+}
+
+/** Specs card for a reference movement. */
+function referenceCard(r: RefMovement, title = 'Reference specs'): HTMLElement {
+  const row = (k: string, v: string | number | null | undefined) => (v === null || v === undefined || v === '' ? '' : h('div', null, h('dt', null, k), h('dd', null, String(v))));
+  return h(
+    'section',
+    { class: 'panel' },
+    h('h2', null, title),
+    h(
+      'dl',
+      { class: 'specs ref-specs' },
+      row('Maker', r.maker),
+      row('Type', MOVEMENT_TYPES[r.type]),
+      row('Beat rate', `${fmtBph(r.bph)} bph (${r.bph / 7200} Hz)`),
+      row('Lift angle', r.liftAngle ? `${r.liftAngle}°` : 'Not documented'),
+      row('Jewels', r.jewels),
+      row('Diameter', r.diameterMm ? `${r.diameterMm} mm` : null),
+      row('Height', r.heightMm ? `${r.heightMm} mm` : null),
+      row('Power reserve', r.powerReserveH ? `${r.powerReserveH} hours` : null),
+      row('Based on', r.basedOn),
+      row('Features', r.features),
+      row('Also known as', r.aliases?.length ? r.aliases.join(', ').toUpperCase() : null),
+    ),
+    r.notes && h('p', { class: 'small' }, r.notes),
+    r.coAxial && h('p', { class: 'small warn-text' }, 'Co-axial escapement: Escapement reads its rate and beat error normally, but its amplitude only roughly.'),
+    h('p', { class: 'small muted' }, 'Source: ', h('a', { href: r.source, target: '_blank', rel: 'noopener' }, new URL(r.source).hostname.replace(/^www\./, '')), ' · ', h('a', { href: ranfftUrl(r.maker.split(/[ (/]/)[0], r.caliber), target: '_blank', rel: 'noopener' }, 'Ranfft DB ↗')),
+  );
 }
 
 export function movementDetailView(root: HTMLElement, rawId: string): void {
@@ -120,9 +219,45 @@ export function movementDetailView(root: HTMLElement, rawId: string): void {
   void (async () => {
     const m = await db.movements.get(id);
     if (!m) {
-      root.append(h('div', { class: 'page' }, h('p', null, 'That movement isn’t in your library. ', h('a', { href: '#/movements' }, 'Back to movements'))));
+      const r = referenceById(id);
+      if (!r) {
+        root.append(h('div', { class: 'page' }, h('p', null, 'That movement isn’t in your library. ', h('a', { href: '#/movements' }, 'Back to movements'))));
+        return;
+      }
+      const watches = (await db.watches.toArray()).filter((w) => findReference(w.caliber)?.id === r.id);
+      root.append(
+        h(
+          'div',
+          { class: 'page narrow' },
+          h('a', { class: 'back', href: '#/movements' }, '← All movements'),
+          h('header', { class: 'page-head' }, h('div', null, h('h1', null, `Caliber ${r.caliber}`), h('p', { class: 'muted' }, r.maker))),
+          referenceCard(r, 'Specs'),
+          watches.length
+            ? h('section', { class: 'panel' }, h('h2', null, 'Your watches with this movement'), h('ul', null, watches.map((w) => h('li', null, h('a', { href: `#/watches/${w.id}` }, w.name)))))
+            : '',
+          h(
+            'div',
+            { class: 'actions' },
+            h(
+              'button',
+              {
+                class: 'btn',
+                onclick: async () => {
+                  const mv = await upsertMovement(r.caliber, {});
+                  if (mv) {
+                    toast(`Added ${r.caliber} to your movements`);
+                    location.hash = `#/movements/${encodeURIComponent(mv.id)}`;
+                  }
+                },
+              },
+              'Add to my movements',
+            ),
+          ),
+        ),
+      );
       return;
     }
+    const ref = findReference(m.caliber);
     const { stats } = await loadAll();
     const s = stats.get(id)!;
 
@@ -180,6 +315,7 @@ export function movementDetailView(root: HTMLElement, rawId: string): void {
             rates.length > 1 && h('div', { class: 'muted small' }, `${fmtRate(Math.min(...rates))} … ${fmtRate(Math.max(...rates))}`),
           ),
         ),
+        ref ? referenceCard(ref, `Reference: ${ref.maker} ${ref.caliber}`) : '',
         perWatch.length > 0 &&
           h(
             'section',

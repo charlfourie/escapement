@@ -1,6 +1,7 @@
 import Dexie, { type EntityTable } from 'dexie';
 import type { TracePoint } from './analysis/analyze';
 import type { FaceDesign } from './views/watch-art';
+import { findReference } from './data/movements';
 
 export type Position = 'DU' | 'DD' | 'CU' | 'CD' | 'CL' | 'CR';
 export const POSITIONS: Record<Position, string> = {
@@ -132,6 +133,18 @@ export async function upsertMovement(caliber: string, specs: MovementSpecs = {})
   const existing = await db.movements.get(id);
   const m: Movement = existing ?? { id, caliber: caliber.trim(), maker: '', bph: null, liftAngle: null, jewels: null, size: '', notes: '', createdAt: now, updatedAt: now };
   let changed = !existing;
+  // Known caliber: the reference library fills what's still empty.
+  const ref = findReference(caliber);
+  if (ref) {
+    specs = {
+      maker: ref.maker,
+      bph: ref.bph,
+      ...(ref.liftAngle ? { liftAngle: ref.liftAngle } : {}),
+      ...(ref.jewels ? { jewels: ref.jewels } : {}),
+      ...(ref.diameterMm ? { size: `${ref.diameterMm} mm` } : {}),
+      ...Object.fromEntries(Object.entries(specs).filter(([, v]) => v !== undefined && v !== null && v !== '')),
+    };
+  }
   for (const k of ['maker', 'bph', 'liftAngle', 'jewels', 'size'] as const) {
     const v = specs[k];
     if (v !== undefined && v !== null && v !== '' && (m[k] === null || m[k] === '')) {

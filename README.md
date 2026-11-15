@@ -27,7 +27,7 @@ No app to install and no account needed. Your data stays in your browser, with o
 - **Quartz watches and time checks:** every watch has a movement type. A timegrapher can't read quartz (or Spring Drive), so those watches get **time checks** instead: tap as the seconds hand hits 12 and Escapement compares it with internet time from the server. A few checks since you last set the watch give its drift in s/month. Mechanical watches get time checks too, which show how they keep time on the wrist.
 - **Acoustic quartz test:** a quartz watch's seconds hand is stepped by a tiny motor, and each step clicks. Escapement times those clicks for 5–20 minutes, checks the computer's sound-card clock against internet time as it goes (a sound card can be off by 25–130 s a month, more than the watch), and reports the rate in s/month with an honest ±. A low battery or low solar charge shows up as 2-second steps and is flagged. A one-off 30-minute **calibration** pins the sound card down for every later test.
 - **Battery log:** record battery (or rechargeable cell) changes on quartz, solar and kinetic watches; cards warn when a battery is getting old or a test heard 2-second steps.
-- **Movement library:** one entry per caliber, built as you add watches: specs (maker, beat rate, lift angle, jewels, size) from you or from AI identification, plus your own timing results across every watch with that movement. Each entry links to [Ranfft DB](https://ranfft.org), the community movement encyclopedia, for reference. Escapement doesn't copy Ranfft's data.
+- **Movement library:** one entry per caliber, built as you add watches: specs (maker, beat rate, lift angle, jewels, size) plus your own timing results across every watch with that movement. Alongside it sits a **reference library** of about 40 common calibers (ETA, Sellita, Seiko, Miyota, Rolex, Omega and more), each with its beat rate, lift angle, jewels, size and power reserve and a link to its source. Type a known caliber in the watch form ("NH35", "ETA 2824", "Cal. 7S26") and its beat rate, lift angle and movement type fill in; a watch whose lift angle disagrees with its caliber's documented one gets a nudge, since that error skews amplitude by about 6° per degree. Lift angles are only listed where a source documents them, never guessed. Every entry also links to [Ranfft DB](https://ranfft.org), the community movement encyclopedia; Escapement doesn't copy Ranfft's data.
 - **Simulated watch:** try everything without a watch. Set rate, beat error, amplitude and noise, and listen to it tick.
 
 ## Online collection (optional)
@@ -117,6 +117,7 @@ src/
   audio/      detector (worklet-safe), simulated watch, worklet, engine
   analysis/   beat-rate detection, fit, trace
   ui/         canvas trace + waveform, SVG history chart
+  data/       reference movements (sourced specs, caliber matching)
   views/      measure, watches, watch detail/form, movements, data
   sync/       online sync engine and its UI
   lab/        Pickup Lab page

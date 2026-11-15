@@ -69,7 +69,7 @@ main { flex: 1; width: 100%; max-width: 1100px; margin: 0 auto; padding: 20px 20
 .icon-btn { background: none; border: 0; color: var(--muted); font-size: 1.2rem; cursor: pointer; padding: 0 6px; }
 .icon-btn:hover { color: var(--bad); }
 
-select, input[type='text'], input[type='number'], input[type='date'], textarea {
+select, input[type='text'], input[type='number'], input[type='date'], input[type='search'], textarea {
   width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line);
   background: var(--bg); color: var(--text); font: inherit;
 }
@@ -485,3 +485,9 @@ canvas.wave { width: 100%; height: 150px; display: block; background: var(--bg);
 }
 .form > .face-designer, .form > .actions { grid-column: 1 / -1; }
 .form > .face-designer { margin: 0; background: var(--bg); }
+
+/* ---------- reference library ---------- */
+.ref-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 4px 0 12px; }
+.ref-filters input[type=search] { max-width: 280px; width: 100%; }
+.ref-owned { color: var(--accent); font-size: 0.7rem; vertical-align: 2px; }
+.ref-specs { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }

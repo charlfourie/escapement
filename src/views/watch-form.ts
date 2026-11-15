@@ -5,6 +5,7 @@ import { fmtBph, fmtHz } from '../util/format';
 import { identifyPanel } from './identify-panel';
 import { faceDesigner } from './face-designer';
 import { watchArt } from './watch-art';
+import { findReference, REFERENCE_MOVEMENTS } from '../data/movements';
 
 export function watchFormView(root: HTMLElement, id: string | null): void {
   void (async () => {
@@ -126,6 +127,61 @@ export function watchFormView(root: HTMLElement, id: string | null): void {
       },
     });
 
+    // Caliber, with the reference library as suggestions. A known caliber
+    // fills in the beat rate and lift angle (only where they're still unset).
+    const refHint = h('small', { class: 'muted' });
+    const showRef = () => {
+      const ref = findReference(w.caliber);
+      refHint.replaceChildren(
+        ref
+          ? h('span', null, `In the reference library: ${ref.maker} ${ref.caliber}, ${fmtBph(ref.bph)} bph${ref.liftAngle ? `, lift angle ${ref.liftAngle}°` : ''}${ref.coAxial ? ', co-axial' : ''}. `, h('a', { href: `#/movements/${ref.id}` }, 'Details'))
+          : '',
+      );
+    };
+    const applyRef = () => {
+      const ref = findReference(w.caliber);
+      if (!ref) return;
+      const filled: string[] = [];
+      if (!w.movementType) {
+        w.movementType = ref.type;
+        filled.push('movement type');
+      }
+      if (!w.bph) {
+        w.bph = ref.bph;
+        filled.push('beat rate');
+      }
+      if (ref.liftAngle && (w.liftAngle === 52 || !w.liftAngle) && w.liftAngle !== ref.liftAngle) {
+        w.liftAngle = ref.liftAngle;
+        filled.push('lift angle');
+      }
+      if (filled.length) {
+        toast(`Filled ${filled.join(', ')} from the reference for ${ref.caliber}`);
+        renderForm();
+      }
+    };
+    const caliberField = () => {
+      const input = h('input', {
+        type: 'text',
+        value: w.caliber,
+        placeholder: 'e.g. 2824-2, NH35, 8215',
+        list: 'ref-calibers',
+        oninput: (e: Event) => {
+          w.caliber = (e.target as HTMLInputElement).value;
+          showRef();
+        },
+        onchange: applyRef,
+      });
+      showRef();
+      return h(
+        'label',
+        { class: 'field' },
+        h('span', null, 'Caliber'),
+        input,
+        h('datalist', { id: 'ref-calibers' }, REFERENCE_MOVEMENTS.map((m) => h('option', { value: m.caliber }, `${m.maker} · ${fmtBph(m.bph)} bph`))),
+        refHint,
+      );
+    };
+
     const designer = faceDesigner(w, () => {
       if (!w.photo || w.face?.preferArt) renderPreview();
     });
@@ -181,7 +237,7 @@ export function watchFormView(root: HTMLElement, id: string | null): void {
             renderForm(); // beat rate and lift angle only apply to mechanical watches
           }),
         ),
-        text('caliber', 'Caliber', 'e.g. 3861'),
+        caliberField(),
         isTimegraphable(w) &&
         h(
           'label',

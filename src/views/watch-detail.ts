@@ -6,6 +6,7 @@ import { historyChart } from '../ui/history-chart';
 import { h, toast } from '../util/dom';
 import { fmtBph, fmtDate, fmtDateTime, fmtDuration, fmtMs, fmtRate, rateGrade, ranfftUrl } from '../util/format';
 import { watchThumb } from './watches';
+import { findReference } from '../data/movements';
 
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
@@ -31,6 +32,31 @@ export function watchDetailView(root: HTMLElement, id: string): void {
         ['Last serviced', w.lastService && fmtDate(Date.parse(w.lastService))],
       ] as Array<[string, string]>
     ).filter(([, v]) => v);
+
+    // The caliber's documented lift angle differs from the watch's: amplitude would be off.
+    const ref = findReference(w.caliber);
+    const liftHint = () => {
+      if (!mech || !ref?.liftAngle || ref.liftAngle === w.liftAngle) return '';
+      const el = h(
+        'p',
+        { class: 'small warn-text lift-hint' },
+        `The ${ref.maker} ${ref.caliber} has a documented lift angle of ${ref.liftAngle}°; this watch is set to ${w.liftAngle}°, which skews amplitude by roughly ${Math.round(Math.abs(ref.liftAngle - w.liftAngle) * 6)}°. `,
+        h(
+          'button',
+          {
+            class: 'link-btn',
+            onclick: async () => {
+              await db.watches.update(w.id, { liftAngle: ref.liftAngle!, updatedAt: Date.now() });
+              w.liftAngle = ref.liftAngle!;
+              el.replaceWith(h('p', { class: 'small muted' }, `Lift angle set to ${ref.liftAngle}°.`));
+              toast('Lift angle updated');
+            },
+          },
+          `Use ${ref.liftAngle}°`,
+        ),
+      );
+      return el;
+    };
 
     const statsEl = h('div', { class: 'stat-row' });
     const chartWrap = h('div', { class: 'chart-wrap' });
@@ -141,6 +167,7 @@ export function watchDetailView(root: HTMLElement, id: string): void {
                 h('a', { href: `#/movements/${encodeURIComponent(movementId(w.caliber))}` }, `Movement ${w.caliber} →`),
                 h('a', { href: ranfftUrl(w.brand, w.caliber), target: '_blank', rel: 'noopener' }, 'Ranfft DB ↗'),
               ),
+            liftHint(),
             w.notes && h('p', { class: 'muted notes-text' }, w.notes),
             h(
               'div',
