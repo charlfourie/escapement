@@ -124,8 +124,11 @@ const SHOWCASE: Array<{ w: Partial<Watch>; d: Partial<FaceDesign>; label: string
   { w: { brand: 'Rotary', movementType: 'manual', bph: 21600 }, d: { shape: 'round', metal: 'gold', dial: '#e9e4d8', markers: 'arabic', seconds: 'small', hands: '#111111', secondsColour: '#111111', strap: 'leather', strapColour: '#5a3a22', patina: 'heavy' }, label: 'Gold, small seconds, well worn' },
   { w: { brand: 'Seiko', movementType: 'automatic', bph: 21600 }, d: { shape: 'round', metal: 'steel', dial: '#1a1b1c', markers: 'dots', bezel: 'dive', strap: 'rubber', secondsColour: '#ff5a4a', date: true, patina: 'light' }, label: 'Diver, tropical in the making' },
   { w: { brand: 'Hamilton', movementType: 'manual', bph: 18000 }, d: { shape: 'tank', metal: 'rose', dial: '#e9e4d8', markers: 'roman', hands: '#1b2a4a', seconds: 'none', strap: 'leather', strapColour: '#203247', patina: 'none' }, label: 'Rectangular, rose gold, Roman' },
+  { w: { brand: 'Seiko', movementType: 'automatic', bph: 21600 }, d: { shape: 'tv', metal: 'steel', dial: '#5a1f24', texture: 'sunburst', markers: 'batons', strap: 'bracelet', date: true, secondsColour: '#e6efe9', patina: 'light' }, label: 'A 1970s TV case, oxblood sunburst' },
+  { w: { brand: 'Unitas', movementType: 'manual', bph: 18000 }, d: { shape: 'pocket', metal: 'gold', dial: '#e9e4d8', markers: 'roman', hands: '#111111', secondsColour: '#111111', seconds: 'small', patina: 'heavy' }, label: 'Pocket watch, on a chain, very old' },
   { w: { brand: 'Citizen', movementType: 'solar' }, d: { shape: 'cushion', metal: 'black', dial: '#14472f', texture: 'sunburst', bezel: 'coin', strap: 'nato', strapColour: '#2e3b2c', secondsColour: '#f5b84a', text: 'ECO-DRIVE', patina: 'none' }, label: 'Cushion, sunburst, steps like quartz' },
   { w: { brand: 'Escapement', movementType: 'automatic', bph: 28800 }, d: { shape: 'octagon', metal: 'steel', dial: '#1d3a5f', texture: 'linen', markers: 'batons', strap: 'bracelet', powerReserve: true, secondsColour: '#7cf2a5', patina: 'none' }, label: 'Octagonal, linen, 8 beats a second' },
+  { w: { brand: 'Longines', movementType: 'manual', bph: 18000 }, d: { shape: 'oval', metal: 'gold', dial: '#d9b77a', markers: 'none', hands: '#111111', seconds: 'none', strap: 'leather', strapColour: '#1b211e', text: '', patina: 'light' }, label: 'Oval, champagne, no markers at all' },
   { w: { brand: 'Grand', movementType: 'spring-drive' }, d: { shape: 'tonneau', metal: 'steel', dial: '#b9bec2', texture: 'plain', markers: 'batons', strap: 'leather', strapColour: '#1b211e', text: 'SPRING DRIVE', powerReserve: true, patina: 'none' }, label: 'Tonneau, gliding seconds' },
 ];
 
@@ -136,7 +139,7 @@ const OVERKILL: Array<[string, string]> = [
   ['Shows the time your watch actually says, from your time checks', 'No'],
   ['A crown you can pull to set the hands, which hacks only if the real movement does', 'Not remotely'],
   ['The dial ages with its movement: patina, tropical dials, old lume, a scratched acrylic crystal', 'No'],
-  ['5 case shapes, 4 metals, any dial colour, 4 finishes, 5 marker styles, 3 bezels, 4 straps', 'No'],
+  ['9 case shapes (pocket watch included, chain and all), 4 metals, any dial colour, 4 finishes, 5 marker styles, 3 bezels, 4 straps', 'No'],
   ['Stands in for a photo of the watch', 'Technically, yes'],
 ];
 

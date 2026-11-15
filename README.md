@@ -56,7 +56,7 @@ Add your watches with photos, calibre and service dates, and each gets its rate-
 
 ## 🎩 The most over-engineered image placeholder ever
 
-<p align="center"><img src="docs/media/placeholders.gif" alt="A drawn watch face redesigning itself: a worn gold Rotary, a Seiko diver, a rose-gold rectangular dress watch, a green cushion Eco-Drive, an octagonal 28,800 bph watch and a gliding Spring Drive" width="320"></p>
+<p align="center"><img src="docs/media/placeholders.gif" alt="A drawn watch face redesigning itself nine times: a worn gold Rotary, a Seiko diver, a rose-gold rectangular dress watch, a 1970s TV case, a pocket watch on a chain, a cushion Eco-Drive, an octagonal 28,800 bph watch, a champagne oval and a gliding Spring Drive" width="320"></p>
 
 A watch without a photo needs a picture. It needed a small grey square. It got this:
 
@@ -68,12 +68,14 @@ A watch without a photo needs a picture. It needed a small grey square. It got t
 | Shows the time your watch actually says, from your time checks | *No* |
 | A crown you can pull to set the hands, which hacks only if the real movement does | *Not remotely* |
 | The dial ages with its movement: patina, tropical dials, old lume, a scratched acrylic crystal | *No* |
-| 5 case shapes, 4 metals, any dial colour, 4 finishes, 5 marker styles, 3 bezels, 4 straps | *No* |
+| 9 case shapes (pocket watch included, chain and all), 4 metals, any dial colour, 4 finishes, 5 marker styles, 3 bezels, 4 straps | *No* |
 | Stands in for a photo of the watch | **Technically, yes** |
 
-**It has a designer.** Of course it does. Case shape and metal, dial colour and finish, markers, hands, small seconds, diver or coin-edge bezel, strap or bracelet, date window, power reserve and how old it should look, with a live preview. Anything you leave alone keeps following the watch, and the drawn face can stand in for a photo you do have.
+**It has a designer.** Of course it does. Nine case shapes: round, a proper pillow-shaped cushion, oval, square, a 1970s TV case, rectangular, tonneau, octagonal, and a pocket watch with a bow and a chain, picked automatically when the movement is too big for a wrist. Then the metal, dial colour and finish, markers, hands, small seconds, diver or coin-edge bezel, strap or bracelet, date window, power reserve and how old it should look, with a live preview. Anything you leave alone keeps following the watch, and the drawn face can stand in for a photo you do have.
 
 <p align="center"><img src="docs/media/designer.gif" alt="The face designer: the preview changes case shape (round, cushion, rectangular, tonneau, octagonal), metal, dial colour, markers, finish, seconds and strap" width="80%"></p>
+
+<p align="center"><img src="docs/media/shapes.png" alt="The same blue sunburst dial in nine cases: round, cushion, oval, square, TV, rectangular, tonneau, octagonal and a pocket watch on a chain" width="100%"></p>
 
 **It knows what your watch says.** On a watch's page the face can show *Watch time*: not the real time, but what your actual watch reads right now, worked out from your time checks since you last set it and its measured drift. A Rotary at +7 s/day set 9 days ago reads a minute fast, so its drawing does too.
 

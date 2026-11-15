@@ -132,7 +132,10 @@ export function faceDesigner(w: Watch, onChange: () => void): { el: HTMLElement;
         h('div', { class: 'fd-toggles' }, toggle('Date window', 'date'), toggle('Power reserve', 'powerReserve')),
       ],
       hands: [colour('Hands', 'hands', HAND_SWATCHES), choice('Seconds', 'seconds', SECONDS), f.seconds !== 'none' ? colour('Seconds hand', 'secondsColour', HAND_SWATCHES) : ''],
-      strap: [choice('Style', 'strap', STRAPS), f.strap !== 'bracelet' ? colour('Colour', 'strapColour', STRAP_SWATCHES) : h('p', { class: 'muted small' }, 'The bracelet takes the case metal.')],
+      strap:
+        f.shape === 'pocket'
+          ? [h('p', { class: 'muted small' }, 'A pocket watch wears a chain, not a strap. It takes the case metal.')]
+          : [choice('Style', 'strap', STRAPS), f.strap !== 'bracelet' ? colour('Colour', 'strapColour', STRAP_SWATCHES) : h('p', { class: 'muted small' }, 'The bracelet takes the case metal.')],
     };
     controls.replaceChildren(tabsEl, h('div', { class: 'fd-panel', role: 'tabpanel' }, ...rows[tab]));
     side.replaceChildren(w.photo ? toggle('Use instead of the photo', 'preferArt') : '');

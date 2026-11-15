@@ -13,7 +13,7 @@ import { patinaLevel, productionYear } from '../data/face-time';
  * overridden in the watch's face design. The hands show the real time.
  */
 
-export type CaseShape = 'round' | 'cushion' | 'tank' | 'tonneau' | 'octagon';
+export type CaseShape = 'round' | 'cushion' | 'oval' | 'square' | 'tv' | 'tank' | 'tonneau' | 'octagon' | 'pocket';
 export type Markers = 'batons' | 'arabic' | 'roman' | 'dots' | 'none';
 export type Texture = 'plain' | 'sunburst' | 'rotor' | 'linen';
 export type Bezel = 'none' | 'dive' | 'coin';
@@ -47,9 +47,13 @@ export interface FaceDesign {
 export const SHAPES: Array<[CaseShape, string]> = [
   ['round', 'Round'],
   ['cushion', 'Cushion'],
+  ['oval', 'Oval'],
+  ['square', 'Square'],
+  ['tv', 'TV (1970s)'],
   ['tank', 'Rectangular'],
   ['tonneau', 'Tonneau'],
   ['octagon', 'Octagonal'],
+  ['pocket', 'Pocket watch'],
 ];
 export const MARKERS: Array<[Markers, string]> = [
   ['batons', 'Batons'],
@@ -120,10 +124,16 @@ function hash(s: string): number {
 
 function shapeFromName(w: Watch): CaseShape {
   const t = `${w.name} ${w.reference} ${w.notes}`.toLowerCase();
+  if (/pocket|savonnette|hunter|l[eé]pine/.test(t)) return 'pocket';
   if (/cushion/.test(t)) return 'cushion';
   if (/tonneau|barrel/.test(t)) return 'tonneau';
   if (/octagon/.test(t)) return 'octagon';
-  if (/\btank\b|square|rectangular|reverso/.test(t)) return 'tank';
+  if (/\boval\b/.test(t)) return 'oval';
+  if (/\btv\b|television/.test(t)) return 'tv';
+  if (/\bsquare\b/.test(t)) return 'square';
+  if (/\btank\b|rectangular|reverso/.test(t)) return 'tank';
+  // A movement too big for a wrist (40 mm and up) lives in a pocket watch.
+  if ((findMovement(w.caliber, w.brand)?.diameterMm ?? 0) >= 40) return 'pocket';
   return 'round';
 }
 
@@ -151,7 +161,7 @@ export function autoFace(w: Watch): FaceDesign {
   const pal = AUTO_PALETTES[seed % AUTO_PALETTES.length];
   const type = w.movementType;
   const shape = shapeFromName(w);
-  const seconds: Seconds = type === 'manual' ? 'small' : 'center';
+  const seconds: Seconds = type === 'manual' || shape === 'pocket' ? 'small' : 'center';
   return {
     shape,
     metal: 'steel',
@@ -164,7 +174,7 @@ export function autoFace(w: Watch): FaceDesign {
     strap: 'leather',
     strapColour: '#1b211e',
     seconds,
-    date: seconds === 'center' && type !== 'spring-drive' && (seed >>> 3) % 3 === 0 && shape !== 'tank',
+    date: seconds === 'center' && type !== 'spring-drive' && (seed >>> 3) % 3 === 0 && shape !== 'tank' && shape !== 'oval' && shape !== 'pocket',
     powerReserve: type === 'spring-drive',
     text: autoText(w),
     preferArt: false,
@@ -229,7 +239,8 @@ export function watchArt(w: Watch, opts: WatchArtOptions = {}): SVGElement {
   const uid = `wa${++uidCounter}`;
 
   // ---- Strap (behind the case) ----
-  const strapW = f.shape === 'tank' ? 26 : 24;
+  const pocket = f.shape === 'pocket';
+  const strapW = f.shape === 'tank' || f.shape === 'tv' ? 26 : f.shape === 'oval' ? 20 : 24;
   const sx = cx - strapW / 2;
   const strapPart = (y: number, hgt: number) => {
     const g = svg('g', {});
@@ -255,12 +266,21 @@ export function watchArt(w: Watch, opts: WatchArtOptions = {}): SVGElement {
     }
     return g;
   };
-  parts.push(strapPart(0, 24), strapPart(76, 24));
+  if (pocket) {
+    // A bow at 12 and a length of chain instead of a strap.
+    parts.push(svg('path', { d: 'M46.5 4.5 C 22 1, 6 18, 3 46', fill: 'none', stroke: metal.edge, 'stroke-width': 1.3, 'stroke-dasharray': '1.7 0.9', 'stroke-linecap': 'round', opacity: 0.85 }));
+    parts.push(svg('circle', { cx, cy: 5, r: 4.2, fill: 'none', stroke: metal.edge, 'stroke-width': 1.6 }));
+  } else {
+    const strapTop = f.shape === 'tv' ? 20 : f.shape === 'square' ? 15 : 0;
+    parts.push(strapPart(0, 24 + Math.max(0, strapTop - 12)), strapPart(76 - Math.max(0, strapTop - 12), 24 + Math.max(0, strapTop - 12)));
+  }
 
   // ---- Crown ----
-  const ring = f.bezel !== 'none' && (f.shape === 'round' || f.shape === 'octagon' || f.shape === 'cushion') ? 5 : 0;
-  const crownX = f.shape === 'tank' ? 78 : f.shape === 'tonneau' ? 81 : f.shape === 'octagon' ? 88 : ring ? 89 : 87;
-  const crown = svg('g', { class: 'wa-crown' }, svg('rect', { x: crownX - 3, y: cy - 8, width: 11, height: 16, fill: 'transparent' }), svg('rect', { x: crownX, y: cy - 4, width: 5, height: 8, rx: 1.5, fill: metal.crown }));
+  const ring = f.bezel !== 'none' && (f.shape === 'round' || f.shape === 'octagon' || f.shape === 'cushion' || f.shape === 'pocket') ? 5 : 0;
+  const crownX = ({ tank: 78, tonneau: 81, octagon: 88, oval: 80, square: 85, tv: 86, cushion: 88.5 } as Partial<Record<CaseShape, number>>)[f.shape] ?? (ring ? 89 : 87);
+  const crown = pocket
+    ? svg('g', { class: 'wa-crown top' }, svg('rect', { x: cx - 8, y: 4, width: 16, height: 11, fill: 'transparent' }), svg('rect', { x: cx - 4, y: 8.4, width: 8, height: 4.6, rx: 1.4, fill: metal.crown }))
+    : svg('g', { class: 'wa-crown' }, svg('rect', { x: crownX - 3, y: cy - 8, width: 11, height: 16, fill: 'transparent' }), svg('rect', { x: crownX, y: cy - 4, width: 5, height: 8, rx: 1.5, fill: metal.crown }));
   parts.push(crown);
 
   // ---- Case and dial area ----
@@ -277,9 +297,37 @@ export function watchArt(w: Watch, opts: WatchArtOptions = {}): SVGElement {
     r = 31 - ring * 0.7;
     dialShape = () => svg('circle', { cx, cy, r });
   } else if (f.shape === 'cushion') {
-    parts.push(svg('rect', { x: 13, y: 13, width: 74, height: 74, rx: 22, ...caseAttrs }));
+    // A pillow: a superellipse, square-ish with every side bulging gently outward.
+    const pillow = (half: number, n: number) => {
+      const pts: string[] = [];
+      for (let i = 0; i < 96; i++) {
+        const t = (i / 96) * 2 * Math.PI;
+        const c = Math.cos(t);
+        const sn = Math.sin(t);
+        pts.push(`${(cx + half * Math.sign(c) * Math.abs(c) ** (2 / n)).toFixed(2)},${(cy + half * Math.sign(sn) * Math.abs(sn) ** (2 / n)).toFixed(2)}`);
+      }
+      return pts.join(' ');
+    };
+    parts.push(svg('polygon', { points: pillow(37, 3.0), ...caseAttrs }));
+    r = 31 - ring * 0.7;
+    dialShape = ring ? () => svg('circle', { cx, cy, r }) : () => svg('polygon', { points: pillow(31, 2.9) });
+  } else if (f.shape === 'oval') {
+    parts.push(svg('ellipse', { cx, cy, rx: 30, ry: 39, ...caseAttrs }));
+    r = 24;
+    dialShape = () => svg('ellipse', { cx, cy, rx: 25, ry: 33.5 });
+  } else if (f.shape === 'square') {
+    parts.push(svg('rect', { x: 15, y: 15, width: 70, height: 70, rx: 6, ...caseAttrs }));
+    r = 28;
+    dialShape = () => svg('rect', { x: 21, y: 21, width: 58, height: 58, rx: 2.5 });
+  } else if (f.shape === 'tv') {
+    // The 1970s television-screen case: wide, with a screen-shaped dial.
+    parts.push(svg('rect', { x: 13, y: 19, width: 74, height: 62, rx: 17, ...caseAttrs }));
+    r = 24;
+    dialShape = () => svg('rect', { x: 20, y: 25, width: 60, height: 50, rx: 12 });
+  } else if (f.shape === 'pocket') {
+    parts.push(svg('circle', { cx, cy, r: 37 + ring * 0.4, ...caseAttrs }));
     r = 32 - ring * 0.7;
-    dialShape = ring ? () => svg('circle', { cx, cy, r }) : () => svg('rect', { x: 18, y: 18, width: 64, height: 64, rx: 17 });
+    dialShape = () => svg('circle', { cx, cy, r });
   } else if (f.shape === 'tank') {
     parts.push(svg('rect', { x: 22, y: 12, width: 56, height: 76, rx: 6, ...caseAttrs }));
     r = 22;
@@ -380,7 +428,7 @@ export function watchArt(w: Watch, opts: WatchArtOptions = {}): SVGElement {
 
   // ---- Dial text: brand at 12, the line below at 6 (above a small-seconds dial) ----
   const brand = w.brand.trim().toUpperCase().slice(0, 14);
-  const tank = f.shape === 'tank';
+  const tank = f.shape === 'tank' || f.shape === 'oval';
   const brandY = cy - r * (tank ? 0.32 : numerals ? 0.36 : 0.42);
   if (brand) onDial.append(label(cx, brandY, brand, tank ? 3.6 : 4.4));
   if (f.text) onDial.append(label(cx, small ? brandY + 6 : cy + r * (numerals ? 0.42 : 0.48), f.text.toUpperCase().slice(0, 20), 3, 500));
@@ -479,9 +527,14 @@ export function watchArt(w: Watch, opts: WatchArtOptions = {}): SVGElement {
   (el as SVGElement & { crown?: SVGElement }).crown = crown;
   // Its age may come from the movement archive, which loads in the background:
   // redraw once it's in if the dial would look older.
-  if (!opts.clock && (f0.patina ?? 'auto') === 'auto' && w.caliber && !archiveLoaded() && !findReference(w.caliber))
+  const autoAge = (f0.patina ?? 'auto') === 'auto';
+  const autoShape = !opts.design && !w.face?.shape;
+  if (!opts.clock && (autoAge || autoShape) && w.caliber && !archiveLoaded() && !findReference(w.caliber))
     void loadArchive().then(() => {
-      if (el.isConnected && patinaLevel('auto', productionYear(findMovement(w.caliber, w.brand))) !== age) el.replaceWith(watchArt(w, opts));
+      if (!el.isConnected) return;
+      const older = autoAge && patinaLevel('auto', productionYear(findMovement(w.caliber, w.brand))) !== age;
+      const reshaped = autoShape && autoFace(w).shape !== f0.shape;
+      if (older || reshaped) el.replaceWith(watchArt(w, opts));
     });
   if (opts.live === false) update(new Date());
   else liveFace(el, update);
