@@ -99,6 +99,18 @@ export function drawTrace(canvas: HTMLCanvasElement, points: TracePoint[], opts:
   }
 }
 
+/**
+ * The trace scale to draw at: the chosen one, or the next wider one if the
+ * trace has drifted off it (a fast or slow watch climbs off the chart in a
+ * minute at ±5 ms). Past the widest it wraps, like timegrapher paper.
+ */
+export function fitSpan(points: TracePoint[], chosen: number, spans: number[]): number {
+  let max = 0;
+  for (const p of points) max = Math.max(max, Math.abs(p.dev));
+  const need = max * 2 * 1.12;
+  return spans.find((s) => s >= chosen && s >= need) ?? Math.max(chosen, spans[spans.length - 1]);
+}
+
 /** Overlay of recent tick envelopes — shows the unlock / impulse / drop clicks. */
 export function drawWaveform(canvas: HTMLCanvasElement, snippets: number[][], binMs: number, preMs: number): void {
   const { ctx, w, h } = prep(canvas);

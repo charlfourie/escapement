@@ -176,13 +176,20 @@ export function analyze(allTimes: number[], opts: AnalyzeOptions = {}): Analysis
   }
   if (!coeffs || ts.length < 8) return null;
 
-  const { a, b, c } = coeffs;
+  const { b, c } = coeffs;
   const span = ns[ns.length - 1] - ns[0] + 1;
   const tFirst = ts[0];
+  // The trace is anchored to its start, not to the fit: as more ticks come in
+  // and the fit is refined, the dots already drawn stay where they are.
+  const raw = ts.map((t, i) => (t - P * (ns[i] - ns[0])) * 1000);
+  const anchor = median(raw.slice(0, Math.min(20, raw.length)));
+  // "toc" (odd) is always the later of the two ticks, so the two lines keep
+  // their places even when the analysis starts from a different tick.
+  const flip = c !== null && c < 0;
   const points: TracePoint[] = ts.map((t, i) => ({
     t: t - tFirst,
-    dev: (t - (a + P * ns[i])) * 1000,
-    odd: ns[i] % 2 !== 0,
+    dev: raw[i] - anchor,
+    odd: (ns[i] % 2 !== 0) !== flip,
   }));
 
   return {

@@ -9,7 +9,7 @@ import { liftFromEnvelope } from '../analysis/lift';
 import { PositionTest, SETTLE_SEC, STEP_SEC } from './position-test';
 import { blankWatch, db, isTimegraphable, newId, POSITIONS, WIND_STATES, type Measurement, type Position, type Watch, type WindState } from '../db';
 import { loadPrefs, savePrefs } from '../prefs';
-import { drawTrace, drawWaveform } from '../ui/canvas';
+import { drawTrace, drawWaveform, fitSpan } from '../ui/canvas';
 import { downloadBlob, encodeWav, h, select, toast } from '../util/dom';
 import { beatErrorGrade, fmtBph, fmtDuration, fmtHz, fmtMs, fmtRate, gradeLabel, rateGrade } from '../util/format';
 
@@ -696,7 +696,13 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
     if (!dirty) return;
     dirty = false;
     const msg = state === 'running' ? (times.length < 8 ? 'Listening for ticks…' : autolock && !lock?.locked ? 'Searching for the beat…' : 'Locking on…') : state === 'starting' ? 'Starting…' : 'Press Start, then hold the watch against the microphone';
-    drawTrace(traceCanvas, full?.points ?? [], { spanMs: prefs.traceSpan, windowSec: null, message: msg });
+    const pts = full?.points ?? [];
+    const span = fitSpan(pts, prefs.traceSpan, SPANS);
+    spanBtns.forEach((b, i) => {
+      b.classList.toggle('auto', SPANS[i] === span && span !== prefs.traceSpan);
+      b.title = SPANS[i] === span && span !== prefs.traceSpan ? 'Zoomed out to fit the trace' : '';
+    });
+    drawTrace(traceCanvas, pts, { spanMs: span, windowSec: null, message: msg });
     drawWaveform(waveCanvas, snippets, SNIPPET_BIN_MS, SNIPPET_PRE_MS);
   }
 
