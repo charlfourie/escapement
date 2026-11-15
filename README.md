@@ -57,6 +57,16 @@ And since we'd gone that far, there's a **face designer** too:
 
 Case shape and metal, dial colour and finish, markers, hands, small seconds, diver or coin-edge bezel, strap or bracelet, date window, power reserve. Anything you leave alone keeps following the watch.
 
+Still not over-engineered enough, so on a watch's page the face behaves like the watch:
+
+<p align="center"><img src="docs/media/watch-time.gif" alt="The Rotary's face switches to Watch time and jumps a minute fast, then the crown is pulled and the minute hand dragged round while the seconds hand keeps running" width="70%"></p>
+
+- **Watch time** shows what your watch actually says right now, not the real time. It's worked out from your time checks since you last set it and its measured drift, so a Rotary at +7 s/day set 9 days ago reads a minute fast.
+- **Pull the crown** and drag the hands to set them. The seconds hand stops only if the movement **hacks**: a Seiko 7S26 doesn't, so its seconds keep running while you set it, just like the real one. Push the crown in and the hands carry on from where you left them, a little behind if the seconds were stopped.
+- **The dial ages** with its movement. A calibre from the 1970s gets some patina; one from the 1950s or earlier is well worn, with yellowed (or sun-faded "tropical") dials, aged lume and a hazy, lightly scratched acrylic crystal. You can override it in the designer.
+
+<p align="center"><img src="docs/media/ages.png" alt="Two watch faces at three ages: like new, some patina and well worn. The cream dial yellows; the black dial fades to a tropical brown with aged lume" width="80%"></p>
+
 <p align="center"><img src="docs/media/watch.png" alt="A watch's page: specs, five stat cards and the rate-over-time chart climbing into the COSC band after a regulation" width="100%"></p>
 
 **Identify with AI, free:** photograph the caseback, movement and dial, and Escapement suggests the brand, reference, calibre, beat rate, lift angle and production date, with sources. Copy the request into the Claude or Gemini app you already use, or use your own free Gemini key. Nothing is billed.
@@ -246,7 +256,7 @@ docs/media/   README screenshots and GIFs
 - [x] Tested on real watches with a contact pickup
 - [x] Acoustic quartz test with sound-card clock calibration and dropout handling, battery log
 - [x] Free AI identification
-- [x] Live drawn watch faces and a face designer
+- [x] Live drawn watch faces, a face designer, watch time, a pullable crown and dial ageing
 - [x] Reference library of ~3,000 movements, Tested tags, Find the movement
 - [x] Optional online collection: GitHub sign-in and manual sync across devices
 - [ ] Installable offline app

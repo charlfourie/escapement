@@ -6,7 +6,9 @@
 
 import type { Watch } from '../db';
 import { h } from '../util/dom';
-import { BEZELS, DIAL_SWATCHES, HAND_SWATCHES, MARKERS, METALS, SECONDS, SHAPES, STRAPS, STRAP_SWATCHES, TEXTURES, autoFace, resolveFace, watchArt, type FaceDesign } from './watch-art';
+import { BEZELS, DIAL_SWATCHES, HAND_SWATCHES, MARKERS, METALS, PATINAS, SECONDS, SHAPES, STRAPS, STRAP_SWATCHES, TEXTURES, autoFace, resolveFace, watchArt, type FaceDesign } from './watch-art';
+import { findMovement } from '../data/movements';
+import { patinaLevel, productionYear } from '../data/face-time';
 
 type Key = keyof FaceDesign;
 
@@ -67,13 +69,27 @@ export function faceDesigner(w: Watch, onChange: () => void): { el: HTMLElement;
   type Tab = 'case' | 'dial' | 'hands' | 'strap';
   const TABS: Array<[Tab, string, Key[]]> = [
     ['case', 'Case', ['shape', 'metal', 'bezel']],
-    ['dial', 'Dial', ['dial', 'texture', 'markers', 'text', 'date', 'powerReserve']],
+    ['dial', 'Dial', ['dial', 'texture', 'markers', 'patina', 'text', 'date', 'powerReserve']],
     ['hands', 'Hands', ['hands', 'seconds', 'secondsColour']],
     ['strap', 'Strap', ['strap', 'strapColour']],
   ];
   let tab: Tab = 'case';
   const tabsEl = h('div', { class: 'fd-tabs', role: 'tablist' });
   const side = h('div', { class: 'fd-side-toggles' });
+
+  // What "From its age" means for this watch.
+  const ageNote = () => {
+    if (resolveFace(w).patina !== 'auto') return '';
+    const year = productionYear(findMovement(w.caliber, w.brand));
+    const lvl = patinaLevel('auto', year);
+    return h(
+      'p',
+      { class: 'muted small fd-note' },
+      year
+        ? `Its movement dates from about ${year}: ${lvl === 'heavy' ? 'well worn' : lvl === 'light' ? 'some patina' : 'still like new'}.`
+        : 'No production year for its movement, so it stays like new. Set the caliber to age it.',
+    );
+  };
 
   function refresh() {
     preview.replaceChildren(watchArt(w));
@@ -110,6 +126,8 @@ export function faceDesigner(w: Watch, onChange: () => void): { el: HTMLElement;
         colour('Colour', 'dial', DIAL_SWATCHES),
         choice('Finish', 'texture', TEXTURES),
         choice('Markers', 'markers', MARKERS),
+        choice('Age', 'patina', PATINAS),
+        ageNote(),
         row('Text', 'text', textInput),
         h('div', { class: 'fd-toggles' }, toggle('Date window', 'date'), toggle('Power reserve', 'powerReserve')),
       ],

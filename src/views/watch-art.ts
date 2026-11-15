@@ -1,6 +1,8 @@
 import type { Watch } from '../db';
 import { svg } from '../util/dom';
 import { liveFace, reducedMotion } from '../ui/ticker';
+import { archiveLoaded, findMovement, findReference, loadArchive } from '../data/movements';
+import { patinaLevel, productionYear } from '../data/face-time';
 
 /**
  * The drawn watch face: what may be the most over-engineered image
@@ -18,6 +20,8 @@ export type Bezel = 'none' | 'dive' | 'coin';
 export type Strap = 'leather' | 'rubber' | 'bracelet' | 'nato';
 export type Metal = 'steel' | 'gold' | 'rose' | 'black';
 export type Seconds = 'center' | 'small' | 'none';
+/** Dial ageing: 'auto' follows the movement's production year. */
+export type Patina = 'auto' | 'none' | 'light' | 'heavy';
 
 export interface FaceDesign {
   shape: CaseShape;
@@ -37,6 +41,7 @@ export interface FaceDesign {
   text: string;
   /** Show the drawn face even when the watch has a photo. */
   preferArt: boolean;
+  patina: Patina;
 }
 
 export const SHAPES: Array<[CaseShape, string]> = [
@@ -80,6 +85,12 @@ export const SECONDS: Array<[Seconds, string]> = [
   ['center', 'Centre'],
   ['small', 'Small seconds'],
   ['none', 'None'],
+];
+export const PATINAS: Array<[Patina, string]> = [
+  ['auto', 'From its age'],
+  ['none', 'Like new'],
+  ['light', 'Some patina'],
+  ['heavy', 'Well worn'],
 ];
 export const DIAL_SWATCHES = ['#1a1b1c', '#121a24', '#1d3a5f', '#14472f', '#5a1f24', '#e9e4d8', '#b9bec2', '#d9b77a'];
 export const HAND_SWATCHES = ['#e6efe9', '#111111', '#1b2a4a', '#c9a24a', '#7cf2a5', '#ff5a4a'];
@@ -157,12 +168,29 @@ export function autoFace(w: Watch): FaceDesign {
     powerReserve: type === 'spring-drive',
     text: autoText(w),
     preferArt: false,
+    patina: 'auto',
   };
 }
 
 /** The design to draw: automatic, with the watch's own choices on top. */
 export function resolveFace(w: Watch): FaceDesign {
   return { ...autoFace(w), ...(w.face ?? {}) };
+}
+
+const rgb = (hex: string): [number, number, number] => {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  const n = m ? parseInt(m[1], 16) : 0x222222;
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+};
+const luminance = (hex: string) => {
+  const [r, g, b] = rgb(hex);
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+};
+/** Blend two colours: t = 0 is a, 1 is b. */
+export function mixHex(a: string, b: string, t: number): string {
+  const x = rgb(a);
+  const y = rgb(b);
+  return `#${x.map((v, i) => Math.round(v + (y[i] - v) * t).toString(16).padStart(2, '0')).join('')}`;
 }
 
 /** Readable ink for markers and text on a dial colour. */
@@ -177,10 +205,23 @@ function inkFor(dial: string): string {
 const pt = (cx: number, cy: number, r: number, turn: number) => [cx + Math.sin(turn * 2 * Math.PI) * r, cy - Math.cos(turn * 2 * Math.PI) * r];
 let uidCounter = 0;
 
-export function watchArt(w: Watch, opts: { live?: boolean; design?: FaceDesign } = {}): SVGElement {
-  const f = opts.design ?? resolveFace(w);
+export interface WatchArtOptions {
+  live?: boolean;
+  design?: FaceDesign;
+  /** Maps real time to the time shown (watch time, hands set by hand, a stopped seconds hand). */
+  clock?: (now: Date) => Date;
+}
+
+export function watchArt(w: Watch, opts: WatchArtOptions = {}): SVGElement {
+  const f0 = opts.design ?? resolveFace(w);
   const seed = hash(w.id || w.name);
-  const ink = inkFor(f.dial);
+  // Age: from the movement's production year unless chosen.
+  const age = patinaLevel(f0.patina ?? 'auto', productionYear(findMovement(w.caliber, w.brand)));
+  const aged = age === 'heavy' ? 0.55 : age === 'light' ? 0.3 : 0;
+  const lume = '#d8c08a';
+  const f = aged && luminance(f0.hands) > 0.6 ? { ...f0, hands: mixHex(f0.hands, lume, aged) } : f0;
+  const darkDial = luminance(f.dial) <= 0.55;
+  const ink = aged && darkDial ? mixHex(inkFor(f.dial), lume, aged) : inkFor(f.dial);
   const metal = METAL_TONES[f.metal] ?? METAL_TONES.steel;
   const cx = 50;
   const cy = 50;
@@ -219,7 +260,8 @@ export function watchArt(w: Watch, opts: { live?: boolean; design?: FaceDesign }
   // ---- Crown ----
   const ring = f.bezel !== 'none' && (f.shape === 'round' || f.shape === 'octagon' || f.shape === 'cushion') ? 5 : 0;
   const crownX = f.shape === 'tank' ? 78 : f.shape === 'tonneau' ? 81 : f.shape === 'octagon' ? 88 : ring ? 89 : 87;
-  parts.push(svg('rect', { x: crownX, y: cy - 4, width: 5, height: 8, rx: 1.5, fill: metal.crown }));
+  const crown = svg('g', { class: 'wa-crown' }, svg('rect', { x: crownX - 3, y: cy - 8, width: 11, height: 16, fill: 'transparent' }), svg('rect', { x: crownX, y: cy - 4, width: 5, height: 8, rx: 1.5, fill: metal.crown }));
+  parts.push(crown);
 
   // ---- Case and dial area ----
   let r: number;
@@ -352,6 +394,31 @@ export function watchArt(w: Watch, opts: { live?: boolean; design?: FaceDesign }
     onDial.append(dateText);
   }
 
+  // ---- Age: a yellowed (or, on dark dials, sun-faded) dial, darker at the edge ----
+  if (aged) {
+    const gid = `${uid}p`;
+    const tone = darkDial ? '#7a5634' : '#b38b4f';
+    parts.push(
+      svg(
+        'defs',
+        {},
+        svg('radialGradient', { id: gid, cx: '50%', cy: '50%', r: '55%' }, svg('stop', { offset: '0%', 'stop-color': tone, 'stop-opacity': aged * 0.35 }), svg('stop', { offset: '100%', 'stop-color': tone, 'stop-opacity': aged * (darkDial ? 0.95 : 0.85) })),
+      ),
+    );
+    onDial.append(svg('rect', { x: 0, y: 0, width: 100, height: 100, fill: `url(#${gid})` }));
+    // Faint, soft-edged blotches on well-worn dials, mostly towards the rim.
+    if (age === 'heavy') {
+      const bid = `${uid}b`;
+      const blot = darkDial ? '#a07a4a' : '#7a5a2e';
+      parts.push(svg('defs', {}, svg('radialGradient', { id: bid }, svg('stop', { offset: '0%', 'stop-color': blot, 'stop-opacity': 0.16 }), svg('stop', { offset: '100%', 'stop-color': blot, 'stop-opacity': 0 }))));
+      for (let i = 0; i < 9; i++) {
+        const s1 = hash(`${seed}:${i}`);
+        const [x, y] = pt(cx, cy, r * (0.55 + (s1 % 40) / 100), ((s1 >>> 7) % 1000) / 1000);
+        onDial.append(svg('circle', { cx: x, cy: y, r: 3 + ((s1 >>> 4) % 40) / 10, fill: `url(#${bid})` }));
+      }
+    }
+  }
+
   // ---- Hands, drawn at 12 and turned to the real time ----
   const hand = (len: number, width: number, colour: string, tail = 0, ox = cx, oy = cy) => {
     const g = svg('g', {}, svg('line', { x1: ox, y1: oy + tail, x2: ox, y2: oy - len, stroke: colour, 'stroke-width': width, 'stroke-linecap': 'round' }));
@@ -370,16 +437,35 @@ export function watchArt(w: Watch, opts: { live?: boolean; design?: FaceDesign }
   if (f.seconds === 'center') setSec = hand(r * 0.88, 0.7, f.secondsColour, r * 0.2);
   parts.push(svg('circle', { cx, cy, r: 1.6, fill: f.hands }));
 
+  // ---- An old acrylic crystal: a soft haze and a few hairline scratches ----
+  if (aged) {
+    const hid = `${uid}h`;
+    const crystal = svg('g', { 'clip-path': `url(#${clipId})`, 'pointer-events': 'none' });
+    crystal.append(
+      svg('defs', {}, svg('radialGradient', { id: hid, cx: '32%', cy: '28%', r: '70%' }, svg('stop', { offset: '0%', 'stop-color': '#ffffff', 'stop-opacity': aged * 0.22 }), svg('stop', { offset: '60%', 'stop-color': '#ffffff', 'stop-opacity': aged * 0.06 }), svg('stop', { offset: '100%', 'stop-color': '#ffffff', 'stop-opacity': 0 }))),
+      svg('rect', { x: 0, y: 0, width: 100, height: 100, fill: `url(#${hid})` }),
+    );
+    for (let i = 0; i < (age === 'heavy' ? 4 : 1); i++) {
+      const s1 = hash(`${seed}s${i}`);
+      const [x1, y1] = pt(cx, cy, r * (0.2 + (s1 % 50) / 100), ((s1 >>> 5) % 1000) / 1000);
+      const len = 6 + ((s1 >>> 11) % 10);
+      const dir = ((s1 >>> 17) % 1000) / 1000;
+      crystal.append(svg('line', { x1, y1, x2: x1 + Math.sin(dir * 6.283) * len, y2: y1 - Math.cos(dir * 6.283) * len, stroke: '#ffffff', 'stroke-width': 0.18, opacity: 0.35 }));
+    }
+    parts.push(crystal);
+  }
+
   // How the seconds hand moves: quartz steps once a second, a mechanical
   // watch in small beats at its beat rate, Spring Drive glides.
   const type = w.movementType;
   const quartzLike = type === 'quartz' || type === 'solar' || type === 'kinetic';
   const beatsPerSec = quartzLike ? 1 : type === 'spring-drive' ? 0 : (w.bph || 21600) / 3600;
   let lastKey = -1;
-  const update = (now: Date) => {
+  const update = (real: Date) => {
+    const now = opts.clock ? opts.clock(real) : real;
     const exact = now.getSeconds() + now.getMilliseconds() / 1000;
     const sec = reducedMotion() ? Math.floor(exact) : beatsPerSec ? Math.floor(exact * beatsPerSec) / beatsPerSec : exact;
-    const key = now.getMinutes() * 60 + (setSec ? sec : 0);
+    const key = now.getHours() * 3600 + now.getMinutes() * 60 + (setSec ? sec : 0);
     if (key === lastKey) return;
     lastKey = key;
     const min = now.getMinutes() + sec / 60;
@@ -390,6 +476,13 @@ export function watchArt(w: Watch, opts: { live?: boolean; design?: FaceDesign }
   };
 
   const el = svg('svg', { viewBox: '0 0 100 100', class: 'watch-art', 'aria-hidden': 'true' }, ...parts);
+  (el as SVGElement & { crown?: SVGElement }).crown = crown;
+  // Its age may come from the movement archive, which loads in the background:
+  // redraw once it's in if the dial would look older.
+  if (!opts.clock && (f0.patina ?? 'auto') === 'auto' && w.caliber && !archiveLoaded() && !findReference(w.caliber))
+    void loadArchive().then(() => {
+      if (el.isConnected && patinaLevel('auto', productionYear(findMovement(w.caliber, w.brand))) !== age) el.replaceWith(watchArt(w, opts));
+    });
   if (opts.live === false) update(new Date());
   else liveFace(el, update);
   return el;

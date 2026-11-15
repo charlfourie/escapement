@@ -8,6 +8,7 @@ import { fmtBph, fmtDate, fmtDateTime, fmtDuration, fmtMs, fmtRate, rateGrade, r
 import { watchThumb } from './watches';
 import { escapementNote, findMovement, loadArchive } from '../data/movements';
 import { movementFinder } from './movement-finder';
+import { interactiveFace } from './face-clock';
 
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
@@ -36,6 +37,7 @@ export function watchDetailView(root: HTMLElement, id: string): void {
 
     // The caliber's documented lift angle differs from the watch's: amplitude would be off.
     await loadArchive();
+    const [checks, quartz] = await Promise.all([db.checks.where('watchId').equals(id).toArray(), db.qtests.where('watchId').equals(id).toArray()]);
     const ref = findMovement(w.caliber, w.brand);
     const liftHint = () => {
       const note = ref ? escapementNote(ref) : '';
@@ -158,7 +160,7 @@ export function watchDetailView(root: HTMLElement, id: string): void {
         h(
           'header',
           { class: 'watch-head' },
-          watchThumb(w, 'thumb large'),
+          w.photo && !w.face?.preferArt ? watchThumb(w, 'thumb large') : interactiveFace(w, { checks, quartz, readings: ms }),
           h(
             'div',
             { class: 'watch-head-body' },
