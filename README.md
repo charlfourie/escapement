@@ -1,8 +1,14 @@
 # Escapement
 
-**A free, open-source timegrapher that runs in your browser.** Hold a mechanical watch to your microphone and Escapement listens to its ticks. It measures how many seconds a day the watch gains or loses, and keeps a log for every watch in your collection.
+**A free, open-source timegrapher that runs in your browser.** Clip a pickup to a watch (or hold it to a microphone) and Escapement listens to its ticks. It measures how many seconds a day a mechanical watch gains or loses, its beat error and amplitude, times a quartz watch's stepping motor to the second a month, and keeps a log of every test for every watch in your collection.
 
-No app to install, no account, no server. Your data stays in your browser.
+No app to install and no account needed. Your data stays in your browser, with optional sign-in sync across devices.
+
+**Try it:** [escapement-amber.vercel.app](https://escapement-amber.vercel.app)
+
+## Status
+
+**v0.6, in active use.** Tested on real watches through a R199 clip-on piezo pickup on a desktop's mic jack: a 1970s hand-wound Rotary and a 1976 Citizen automatic (both 21,600 bph) and a Citizen Eco-Drive. What those recordings taught (turn the input up, where to clip the pickup, quiet unlock clicks, audio dropouts during long quartz runs) is built into the app and the signal guide below. Latest: the acoustic quartz test with sound-card clock calibration, every test saved automatically to a Log, a battery log, free AI identification, and what may be the most over-engineered image placeholder ever. Next: an installable offline app, a public share page for chosen watches, and service hints from amplitude trends.
 
 ## Features
 
@@ -150,7 +156,10 @@ It prints what each auto-tune detector heard, which one locked, and the resultin
 - [x] Clip recorder and offline analyser
 - [x] Pickup Lab for testing inputs
 - [x] Tested on real watches with a contact pickup (two vintage 21,600 bph automatics/hand-winders and a solar quartz)
-- [x] Acoustic quartz test with sound-card clock calibration, battery log
+- [x] Acoustic quartz test with sound-card clock calibration, audio-dropout handling, battery log
+- [x] Every valid test saved automatically; a Log of all tests across the collection
+- [x] Free AI identification (via your own chat app, or a free Gemini key)
+- [x] Live-time drawn watch faces and a face designer
 - [ ] Service-due hints from amplitude trend
 - [ ] Installable PWA / offline
 - [x] Optional online collection: GitHub sign-in, manual sync of watches, photos and readings across devices (local-first stays the default)
