@@ -47,12 +47,19 @@ export const AUTO_BANK: Array<Pick<DetectorSettings, 'highpassHz' | 'sensitivity
   AUTO_SENSITIVITY.map((sensitivity) => ({ highpassHz, sensitivity })),
 );
 
-/** Emitted envelope snippet: 2 ms before onset, 22 ms after. */
-export const SNIPPET_PRE_MS = 4;
-export const SNIPPET_MS = 28;
+/**
+ * Emitted envelope snippet: 24 ms before onset, 24 ms after. The long lead-in
+ * catches a quiet unlock click that comes well before the loud click the
+ * trigger fired on, so the averaged beat can still give amplitude.
+ */
+export const SNIPPET_PRE_MS = 24;
+export const SNIPPET_MS = 48;
 export const SNIPPET_BIN_MS = 0.1;
+/** Part of the snippet used for shape-matched timing: 4 ms before onset to 24 ms after. */
+export const ALIGN_PRE_MS = 4;
+export const ALIGN_MS = 28;
 /** Look-back/look-ahead captured around a trigger to find the true first click. */
-const LOOKBACK_MS = 16;
+const LOOKBACK_MS = 32;
 const LOOKAHEAD_MS = 24;
 /** The onset is the first point above this fraction of the beat's peak. */
 const ONSET_FRACTION = 0.2;
@@ -257,9 +264,15 @@ export class TickDetector {
 
     const pre = Math.round((SNIPPET_PRE_MS / 1000) * this.sampleRate);
     const len = Math.round((SNIPPET_MS / 1000) * this.sampleRate);
-    const from = Math.max(0, k - pre);
-    const to = Math.min(raw.length, from + len);
+    const start = k - pre;
+    const to = Math.min(raw.length, start + len);
     const bins: number[] = [];
+    // Keep the onset at the same bin even if the look-back ran short.
+    let from = start;
+    while (from < 0) {
+      bins.push(raw[0]);
+      from += this.binSamples;
+    }
     for (let i = from; i < to; i += this.binSamples) {
       let m = 0;
       for (let j = i; j < Math.min(to, i + this.binSamples); j++) if (raw[j] > m) m = raw[j];

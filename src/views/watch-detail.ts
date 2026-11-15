@@ -1,5 +1,6 @@
 import { db, deleteWatch, isTimegraphable, movementId, MOVEMENT_TYPES, POSITIONS, WIND_STATES, watchMeasurements, type Measurement } from '../db';
 import { timeCheckPanel } from './time-check';
+import { batteryPanel, quartzTestsPanel } from './quartz-panel';
 import { drawTrace } from '../ui/canvas';
 import { historyChart } from '../ui/history-chart';
 import { h, toast } from '../util/dom';
@@ -162,8 +163,11 @@ export function watchDetailView(root: HTMLElement, id: string): void {
             ),
           ),
         ),
-        // Quartz: time checks are the measurement. Mechanical: timegrapher first, time checks after.
+        // Quartz: acoustic tests and time checks are the measurement, plus the
+        // battery log. Mechanical: timegrapher first, time checks after.
+        !mech && quartzTestsPanel(w),
         !mech && timeCheckPanel(w, () => {}),
+        !mech && batteryPanel(w, () => {}),
         (mech || ms.length > 0) && statsEl,
         (mech || ms.length > 0) && h('section', { class: 'panel' }, h('header', { class: 'panel-head' }, h('h2', null, 'Rate over time')), chartWrap),
         (mech || ms.length > 0) && h('section', { class: 'panel' }, h('header', { class: 'panel-head' }, h('h2', null, 'Measurements'), h('span', { class: 'muted small' }, 'Click a row to see its trace')), tableWrap),

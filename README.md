@@ -17,6 +17,8 @@ No app to install, no account, no server. Your data stays in your browser.
 - **Your data, your device:** stored in IndexedDB, with JSON backup/restore and CSV export for spreadsheets
 - **Identify with AI, free:** snap the caseback, movement and dial (or pick photos) and add what you know. Escapement suggests brand, reference, calibre, beat rate, lift angle and the production date decoded from the serial, with sources and caveats, and you choose what to apply. Two routes, neither billed: copy a ready-made request into the Claude or Gemini app you already use and paste the reply back (the chat can search the web), or tap once with your own free Gemini API key from Google AI Studio (no billing; the free tier can't search the web). The key stays in your browser.
 - **Quartz watches and time checks:** every watch has a movement type. A timegrapher can't read quartz (or Spring Drive), so those watches get **time checks** instead: tap as the seconds hand hits 12 and Escapement compares it with internet time from the server. A few checks since you last set the watch give its drift in s/month. Mechanical watches get time checks too, which show how they keep time on the wrist.
+- **Acoustic quartz test:** a quartz watch's seconds hand is stepped by a tiny motor, and each step clicks. Escapement times those clicks for 5–20 minutes, checks the computer's sound-card clock against internet time as it goes (a sound card can be off by 25–130 s a month, more than the watch), and reports the rate in s/month with an honest ±. A low battery or low solar charge shows up as 2-second steps and is flagged. A one-off 30-minute **calibration** pins the sound card down for every later test.
+- **Battery log:** record battery (or rechargeable cell) changes on quartz, solar and kinetic watches; cards warn when a battery is getting old or a test heard 2-second steps.
 - **Movement library:** one entry per caliber, built as you add watches: specs (maker, beat rate, lift angle, jewels, size) from you or from AI identification, plus your own timing results across every watch with that movement. Each entry links to [Ranfft DB](https://ranfft.org), the community movement encyclopedia, for reference. Escapement doesn't copy Ranfft's data.
 - **Simulated watch:** try everything without a watch. Set rate, beat error, amplitude and noise, and listen to it tick.
 
@@ -59,7 +61,9 @@ score = precision × recall / (1 + jitter / 1.5 ms)
 
 A fast O(n) pre-screen picks the candidates worth a full fit. Precision punishes echoes and noise triggers, recall punishes missed beats, and jitter punishes coincidental grids. The best stream wins, with hysteresis so the lock doesn't flicker. Once locked, every detector's dead time widens to ~45% of a beat, which removes echoes from the case or the table.
 
-**Amplitude** comes from the lift time: each beat is split into its sub-clicks (unlock, impulse, drop), each timed at half its own peak, and the gap from unlock to drop gives `A = LA / (2·sin(π·t/T))` with the movement's lift angle LA. The median over the window is shown.
+**Amplitude** comes from the lift time: each beat is split into its sub-clicks (unlock, impulse, drop), each timed at half its own peak, and the gap from unlock to drop gives `A = LA / (2·sin(π·t/T))` with the movement's lift angle LA. The median over the window is shown. When the unlock click is too faint to time on single beats, amplitude is read from the **average of a few hundred aligned beats** instead (noise falls by about √n): each tick's envelope snippet starts 24 ms before the loud click, because on real vintage watches the unlock came 13–14 ms before the drop at under a tenth of its height.
+
+**Quartz:** with a 400 ms dead time, the same detector bank hears the stepping motor; a fit of `t = a + b·n + c·s` (s = ±1 for the motor's alternating polarity) gives the watch's second. Every 3 s the browser asks `/api/time` for the server's clock, timing the round trip on the sound card's clock (interpolated with `getOutputTimestamp`), and a robust line through (server − sound card) gives the sound card's error in ppm, which is subtracted. Calibrations are stored per output device and combined by inverse variance.
 
 **Shape-matched timing:** the detector stamps each tick where its first click crosses a threshold, but in noise that quiet first click is sometimes missed and the stamp lands on the next click, a few ms late. So every tick is then aligned by normalised cross-correlation (0.1 ms envelope bins, parabolic sub-bin interpolation) against a running template of the beat. Ticks that don't resemble a beat are dropped.
 
@@ -78,9 +82,13 @@ with robust outlier rejection, so a bump on the table or a missed tick doesn't t
 ## Getting a clean reading
 
 - Use a quiet room, with the watch dial-up on a soft cloth and the case touching the microphone.
-- A cheap **piezo contact mic** pressed against the case works far better than a built-in mic.
+- A cheap **piezo contact pickup** clipped to the case works far better than a built-in mic. Clip it to the case side at 9 (or a lug), sensor pad on bare metal; not the crown, strap or crystal. Measure and Pickup Lab show a diagram.
+- **Turn the input up.** A piezo pickup on a computer's mic jack is very quiet. On a real setup (a PC's rear mic jack), the noise sat at −82 dBFS and the ticks barely rose above the sound card's own floor. Setting the input to 100 with **Microphone Boost +20 dB** took single ticks from 3× to 10× the background, and auto-tune went from no lock to a solid one. +30 dB was no better (the noise rose too). A Hi-Z instrument input (a USB audio interface's guitar input) suits a piezo best.
+- Use the rear jack on a desktop: the front-panel jack picked up far more hiss and buzz.
+- Leave **Noise reduction** off unless there's a steady hum or whine; on plain hiss it adds false ticks.
 - Wait until the dots form two tidy lines, then let it run 30–60 seconds.
-- Scattered dots: raise the trigger level. No ticks: lower it.
+- No ticks at all? Check the watch is running: an automatic left still stops after a day or two. Give it a few gentle swings.
+- Quartz clicks are quieter: if the case side doesn't work, press the sensor pad to the centre of the caseback.
 - Microphone access needs HTTPS (or `localhost`).
 
 ## Development
@@ -120,13 +128,14 @@ You get a verdict and advice for each input, with a table to compare them. **Use
 
 ## Tuning on real recordings
 
-The **Record 10 s clip** button in the Signal panel saves the raw input as a WAV file. Analyse it offline with exactly the app's pipeline:
+The **Record 10 s clip** button in the Signal panel (and **Record 60 s** in Pickup Lab, for quartz) saves the raw input as a WAV file. Analyse it offline with exactly the app's pipeline:
 
 ```bash
-npm run analyze-clip -- escapement-clip.wav [--bph 28800] [--lift 52]
+npm run analyze-clip -- escapement-clip.wav [--bph 28800] [--lift 52] [--nr]
+npm run analyze-clip -- quartz-clip.wav --quartz
 ```
 
-It prints what each auto-tune detector heard, which one locked, and the resulting rate, beat error and amplitude. Recordings of awkward watches are very welcome as issues.
+It prints what each auto-tune detector heard, which one locked, and the resulting rate, beat error and amplitude (per tick and from the averaged beat). With `--quartz` it finds the stepping motor's clicks, the step length and the rate against the sound card's clock. Recordings of awkward watches are very welcome as issues.
 
 ## Roadmap
 
@@ -136,7 +145,8 @@ It prints what each auto-tune detector heard, which one locked, and the resultin
 - [x] Guided six-position test with averaged rate and delta
 - [x] Clip recorder and offline analyser
 - [x] Pickup Lab for testing inputs
-- [ ] Tested on real watches with a contact pickup
+- [x] Tested on real watches with a contact pickup (two vintage 21,600 bph automatics/hand-winders and a solar quartz)
+- [x] Acoustic quartz test with sound-card clock calibration, battery log
 - [ ] Service-due hints from amplitude trend
 - [ ] Installable PWA / offline
 - [x] Optional online collection: GitHub sign-in, manual sync of watches, photos and readings across devices (local-first stays the default)

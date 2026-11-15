@@ -2,7 +2,7 @@
 /// timestamps are sample-accurate and unaffected by main-thread jank.
 
 import { AUTO_BANK, TickDetector, type DetectorSettings, type TickEvent } from './detector';
-import { TickSynth, type SimParams } from './synth';
+import { QuartzSynth, TickSynth, type QuartzSimParams, type SimParams } from './synth';
 import { SpectralDenoiser } from './denoise';
 
 // AudioWorkletGlobalScope globals (not in the DOM lib).
@@ -15,7 +15,7 @@ declare class AudioWorkletProcessor {
 }
 
 interface Options {
-  processorOptions?: { detector?: Partial<DetectorSettings>; auto?: boolean; denoise?: boolean; sim?: SimParams | null };
+  processorOptions?: { detector?: Partial<DetectorSettings>; auto?: boolean; denoise?: boolean; sim?: SimParams | null; qsim?: QuartzSimParams | null };
 }
 
 /** A tick tagged with the index of the detector that heard it. */
@@ -25,7 +25,7 @@ class TickProcessor extends AudioWorkletProcessor {
   private bank: TickDetector[];
   private auto: boolean;
   private selected = 0;
-  private synth: TickSynth | null;
+  private synth: TickSynth | QuartzSynth | null;
   private buffer = new Float32Array(128);
   private cleaned = new Float32Array(128);
   /** Always in the path (constant latency); `enabled` switches the reduction itself. */
@@ -43,7 +43,7 @@ class TickProcessor extends AudioWorkletProcessor {
     this.bank = this.auto
       ? AUTO_BANK.map((b) => new TickDetector(sampleRate, { ...opts.detector, ...b }))
       : [new TickDetector(sampleRate, opts.detector)];
-    this.synth = opts.sim ? new TickSynth(sampleRate, opts.sim) : null;
+    this.synth = opts.qsim ? new QuartzSynth(sampleRate, opts.qsim) : opts.sim ? new TickSynth(sampleRate, opts.sim) : null;
     this.denoiser = new SpectralDenoiser(sampleRate);
     this.denoiser.enabled = Boolean(opts.denoise);
     this.port.onmessage = (e: MessageEvent) => {
@@ -52,9 +52,9 @@ class TickProcessor extends AudioWorkletProcessor {
       else if (m?.type === 'refractory') this.bank.forEach((d) => d.setSettings({ refractoryMs: m.ms }));
       else if (m?.type === 'select' && m.index >= 0 && m.index < this.bank.length) this.selected = m.index;
       else if (m?.type === 'denoise') this.denoiser.enabled = Boolean(m.on);
-      else if (m?.type === 'sim' && this.synth) this.synth.setParams(m.params);
+      else if (m?.type === 'sim' && this.synth) (this.synth as { setParams(p: unknown): void }).setParams(m.params);
       else if (m?.type === 'record') {
-        this.rec = new Float32Array(Math.round(Math.min(30, Math.max(1, Number(m.seconds) || 10)) * sampleRate));
+        this.rec = new Float32Array(Math.round(Math.min(120, Math.max(1, Number(m.seconds) || 10)) * sampleRate));
         this.recPos = 0;
       }
     };

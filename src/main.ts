@@ -6,6 +6,7 @@ import { watchFormView } from './views/watch-form';
 import { watchDetailView } from './views/watch-detail';
 import { dataView } from './views/data';
 import { movementDetailView, movementsView } from './views/movements';
+import { quartzTestView } from './views/quartz-test';
 import { initSync } from './sync/sync';
 import { syncChip } from './sync/ui';
 
@@ -17,6 +18,8 @@ type Route = [RegExp, (root: HTMLElement, m: RegExpMatchArray, q: URLSearchParam
 
 const routes: Route[] = [
   [/^\/?(measure)?$/, (r, _m, q) => measureView(r, q), 'measure'],
+  [/^\/quartz\/calibrate$/, (r) => quartzTestView(r, null), 'watches'],
+  [/^\/quartz\/([^/]+)$/, (r, m) => quartzTestView(r, m[1]), 'watches'],
   [/^\/watches\/new$/, (r) => watchFormView(r, null), 'watches'],
   [/^\/watches\/([^/]+)\/edit$/, (r, m) => watchFormView(r, m[1]), 'watches'],
   [/^\/watches\/([^/]+)$/, (r, m) => watchDetailView(r, m[1]), 'watches'],
@@ -97,7 +100,7 @@ void initSync();
 // be measuring or typing (Measure, the watch form) are left alone.
 window.addEventListener('escapement:synced', () => {
   const path = location.hash.replace(/^#/, '').split('?')[0] || '/measure';
-  if (/^\/?(measure)?$/.test(path) || /\/(new|edit)$/.test(path)) return;
+  if (/^\/?(measure)?$/.test(path) || /^\/quartz\//.test(path) || /\/(new|edit)$/.test(path)) return;
   const y = window.scrollY;
   route();
   window.scrollTo(0, y);

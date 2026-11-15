@@ -1,9 +1,9 @@
 import workletUrl from './tick-processor.ts?worker&url';
 import type { DetectorSettings } from './detector';
 import type { BankTick } from './tick-processor';
-import type { SimParams } from './synth';
+import type { QuartzSimParams, SimParams } from './synth';
 
-export type Source = { kind: 'mic'; deviceId?: string } | { kind: 'sim'; params: SimParams };
+export type Source = { kind: 'mic'; deviceId?: string } | { kind: 'sim'; params: SimParams } | { kind: 'qsim'; params: QuartzSimParams };
 
 export interface Clip {
   sampleRate: number;
@@ -40,6 +40,20 @@ export class AudioEngine {
     return this.stream?.getAudioTracks()[0] ?? null;
   }
 
+  /**
+   * The sound card's clock right now, in seconds, interpolated between audio
+   * callbacks (currentTime alone moves in steps of 10 ms or more).
+   */
+  audioNow(): number | null {
+    const ctx = this.ctx;
+    if (!ctx) return null;
+    const ts = typeof ctx.getOutputTimestamp === 'function' ? ctx.getOutputTimestamp() : null;
+    if (ts && ts.contextTime !== undefined && ts.performanceTime !== undefined && ts.performanceTime > 0) {
+      return ts.contextTime + (performance.now() - ts.performanceTime) / 1000;
+    }
+    return ctx.currentTime;
+  }
+
   get running(): boolean {
     return this.ctx !== null;
   }
@@ -68,7 +82,7 @@ export class AudioEngine {
         numberOfInputs: 1,
         numberOfOutputs: 1,
         outputChannelCount: [1],
-        processorOptions: { detector: opts.detector, auto: opts.auto, denoise: Boolean(opts.denoise), sim: source.kind === 'sim' ? source.params : null },
+        processorOptions: { detector: opts.detector, auto: opts.auto, denoise: Boolean(opts.denoise), sim: source.kind === 'sim' ? source.params : null, qsim: source.kind === 'qsim' ? source.params : null },
       });
       node.port.onmessage = (e: MessageEvent) => {
         if (e.data?.type === 'update') this.onUpdate?.(e.data as EngineUpdate);
@@ -115,7 +129,7 @@ export class AudioEngine {
     this.node?.port.postMessage({ type: 'select', index });
   }
 
-  /** Record the raw input for `seconds` and resolve with the samples. */
+  /** Record the raw input for `seconds` (up to 120) and resolve with the samples. */
   record(seconds: number): Promise<Clip> {
     if (!this.node) return Promise.reject(new Error('Not running'));
     this.clipWaiter?.reject(new Error('Superseded'));

@@ -8,8 +8,9 @@ import '../styles.css';
 import { placementGuide } from '../views/placement';
 import './lab.css';
 import { AudioEngine, listInputs, type EngineUpdate } from '../audio/engine';
-import { AUTO_BANK } from '../audio/detector';
-import { amplitudeFrom, analyze, type Analysis } from '../analysis/analyze';
+import { AUTO_BANK, SNIPPET_BIN_MS } from '../audio/detector';
+import { amplitudeFrom, amplitudeFromLift, analyze, type Analysis } from '../analysis/analyze';
+import { liftFromEnvelope } from '../analysis/lift';
 import { AutoLock, type LockState } from '../analysis/autolock';
 import { loadPrefs, savePrefs } from '../prefs';
 import { downloadBlob, encodeWav, h, toast } from '../util/dom';
@@ -37,6 +38,8 @@ interface LabResult {
   noiseDb: number | null;
   humDb: number | null;
   tapDb: number | null;
+  /** Loudest raw peak during the watch test. */
+  watchPeakDb?: number | null;
   snrDb: number | null;
   clean: number | null;
   bph: number | null;
@@ -108,7 +111,8 @@ const liveStatus = h('p', { class: 'lock-status' }, 'Pick an input to start list
 const testsEl = h('div', { class: 'lab-tests' });
 const verdictEl = h('div', { class: 'lab-verdict' });
 const compareEl = h('div', { class: 'table-wrap' });
-const recordBtn = h('button', { class: 'btn small', disabled: true, onclick: () => void record() }, 'Record 10 s clip');
+const recordBtn = h('button', { class: 'btn small', disabled: true, onclick: () => void record(10) }, 'Record 10 s clip');
+const recordLongBtn = h('button', { class: 'btn small', disabled: true, title: 'For quartz watches: one click a second needs a longer clip', onclick: () => void record(60) }, 'Record 60 s');
 
 function card(title: string, subtitle: string, ...children: Node[]) {
   return h('section', { class: 'panel' }, h('header', { class: 'panel-head' }, h('h2', null, title), h('span', { class: 'muted small' }, subtitle)), ...children);
@@ -172,7 +176,7 @@ document.getElementById('app')!.append(
       ),
       placementGuide({ open: true }),
       card('3 · Tests', 'run them in order, about 30 s in total', testsEl),
-      card('4 · Verdict', 'for the selected input', verdictEl, h('div', { class: 'actions' }, recordBtn, h('span', { class: 'muted small' }, 'A clip helps tune detection for your exact setup.'))),
+      card('4 · Verdict', 'for the selected input', verdictEl, h('div', { class: 'actions' }, recordBtn, recordLongBtn, h('span', { class: 'muted small' }, 'A clip helps tune detection for your exact setup. Use 60 s for quartz watches.'))),
       card('Compare inputs', 'results kept in this browser', compareEl),
       tips,
     ),
@@ -259,7 +263,7 @@ async function startListening() {
   renderSettings();
   renderTests();
   renderVerdict();
-  recordBtn.disabled = false;
+  recordBtn.disabled = recordLongBtn.disabled = false;
   evalTimer = window.setInterval(evaluate, 750);
   raf = requestAnimationFrame(frame);
 }
@@ -520,8 +524,9 @@ async function tapTest() {
 
 async function watchTest() {
   resetLock();
-  await runFor('watch', WATCH_SEC, (s) => `Listening to the watch… ${s} s${lockState?.locked ? ' · locked on' : ''}`);
+  const data = await runFor('watch', WATCH_SEC, (s) => `Listening to the watch… ${s} s${lockState?.locked ? ' · locked on' : ''}`);
   const r = ensureResult();
+  r.watchPeakDb = data.peak.length ? Math.max(...data.peak) : null;
   evaluate();
   const st = lockState!;
   const times = lock!.streams[st.index];
@@ -536,6 +541,12 @@ async function watchTest() {
   r.beatError = a?.beatError ?? null;
   r.filter = st.locked ? `${AUTO_BANK[st.index].highpassHz / 1000} kHz, ×${AUTO_BANK[st.index].sensitivity}` : null;
   r.amplitude = a ? (amplitudeFrom(lock!.lifts[st.index].filter((x): x is number => x !== null), a.bph, 52)?.amplitude ?? null) : null;
+  if (a && r.amplitude === null) {
+    // Single ticks too noisy: read it from the averaged beat instead.
+    const avg = lock!.template(st.index);
+    const tl = avg ? liftFromEnvelope(avg, SNIPPET_BIN_MS) : null;
+    r.amplitude = tl ? amplitudeFromLift(tl.lift, a.bph, 52) : null;
+  }
   const ticksHeard = times.length > 10;
   r.grade = !ticksHeard ? 'none' : !a ? 'poor' : (r.snrDb ?? 0) >= 25 && a.quality >= 0.9 ? 'excellent' : (r.snrDb ?? 0) >= 15 && a.quality >= 0.75 ? 'good' : 'usable';
   finish();
@@ -616,6 +627,15 @@ function renderVerdict() {
   if (r.grade === 'poor') advice.push('Clicks come through but not as a steady beat. Clamp the pickup more firmly, keep hands and cables still, and try a quieter surface.');
   if (r.humDb != null && r.humDb > 15) advice.push('There’s strong mains hum. Try battery power (unplug the charger) or a shorter cable. Escapement filters most of it out, but less is better.');
   if (r.snrDb != null && r.snrDb < 15 && r.grade !== 'none') advice.push('The watch is quiet relative to the noise. More gain on the sound card, or firmer contact, will help.');
+  // Seen with a piezo pickup on a PC mic jack: everything sat near the
+  // bottom of a 16-bit recording (noise −82 dBFS, ticks −67 dBFS) and the
+  // ticks were barely above the sound card's own noise. +20 dB of Mic Boost
+  // took single ticks from 3× to 10× the background.
+  const quietInput = (r.noiseDb != null && r.noiseDb < -75) || (r.watchPeakDb != null && r.watchPeakDb < -55);
+  if (quietInput && r.grade !== 'excellent')
+    advice.push(
+      'The input level is very low, so the ticks sit close to the sound card’s own noise. Turn the input up: on Windows, Sound settings → Recording → your mic → Properties → Levels, set the level to 100 and Microphone Boost to +20 dB; on a Mac, raise Input volume in Sound settings. With a piezo pickup this alone made a big difference.',
+    );
   if (r.grade === 'excellent' || r.grade === 'good') advice.push('This input is ready for measuring.');
 
   verdictEl.replaceChildren(
@@ -684,20 +704,22 @@ function renderCompare() {
   );
 }
 
-async function record() {
+async function record(seconds: number) {
   if (!engine.running) return;
-  recordBtn.disabled = true;
-  recordBtn.textContent = 'Recording… 10 s';
+  const btn = seconds > 10 ? recordLongBtn : recordBtn;
+  recordBtn.disabled = recordLongBtn.disabled = true;
+  btn.textContent = `Recording… ${seconds} s`;
   try {
-    const clip = await engine.record(10);
+    const clip = await engine.record(seconds);
     const safe = currentLabel.replace(/[^a-z0-9]+/gi, '_').slice(0, 30);
     downloadBlob(encodeWav(clip.samples, clip.sampleRate), `escapement-lab-${safe}-${Date.now()}.wav`);
     toast('Clip saved to your downloads');
   } catch (err) {
     toast(`Recording failed: ${(err as Error)?.message ?? err}`);
   } finally {
-    recordBtn.disabled = !engine.running;
+    recordBtn.disabled = recordLongBtn.disabled = !engine.running;
     recordBtn.textContent = 'Record 10 s clip';
+    recordLongBtn.textContent = 'Record 60 s';
   }
 }
 

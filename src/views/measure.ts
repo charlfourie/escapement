@@ -4,7 +4,8 @@ import { placementGuide } from './placement';
 import { AutoLock, type LockState } from '../analysis/autolock';
 import { TickAligner } from '../analysis/align';
 import type { SimParams } from '../audio/synth';
-import { amplitudeFrom, analyze, downsample, STANDARD_BPH, type Analysis, type AmplitudeResult } from '../analysis/analyze';
+import { amplitudeFrom, amplitudeFromLift, analyze, downsample, STANDARD_BPH, type Analysis, type AmplitudeResult } from '../analysis/analyze';
+import { liftFromEnvelope } from '../analysis/lift';
 import { PositionTest, SETTLE_SEC, STEP_SEC } from './position-test';
 import { blankWatch, db, isTimegraphable, newId, POSITIONS, WIND_STATES, type Position, type Watch, type WindState } from '../db';
 import { loadPrefs, savePrefs } from '../prefs';
@@ -316,6 +317,8 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
       h('li', null, 'Amplitude needs the right lift angle for accuracy. Set it on the watch (52° suits most movements; check the caliber on Ranfft DB).'),
       h('li', null, 'For a full picture, use the six-position test: it measures each position in turn and works out the average rate and the spread between positions.'),
       h('li', null, 'Leave Auto-tune on: it tries every filter and trigger level at once and locks onto the cleanest beat. Setting the beat rate, if you know it, makes locking faster and more reliable.'),
+      h('li', null, 'Nothing locks with the pickup clipped on? The input may simply be too quiet. A piezo pickup on a computer’s mic jack often needs the input level at 100 and Mic Boost at +20 dB (Windows: Sound settings → Recording → Properties → Levels). Pickup Lab checks this for you.'),
+      h('li', null, 'Leave Noise reduction off unless there’s a steady hum or whine: on plain hiss it adds false ticks.'),
       h('li', null, 'With Auto-tune off: scattered dots? Raise the trigger level. No ticks? Lower it, or move the mic closer.'),
       h('li', null, 'Choose the beat rate manually if auto-detect picks half the real rate (that happens when only every other tick is heard).'),
     ),
@@ -435,7 +438,13 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
       const l = lifts[i];
       if (l !== null && l !== undefined) ls.push(l);
     }
-    return amplitudeFrom(ls, bph, liftAngle());
+    const perTick = amplitudeFrom(ls, bph, liftAngle());
+    if (perTick) return perTick;
+    // Too noisy to time the clicks on single ticks: try the averaged beat.
+    const avg = autolock ? autolock.template(lock?.index ?? 0) : aligner.average;
+    const tl = avg ? liftFromEnvelope(avg, SNIPPET_BIN_MS) : null;
+    const a = tl ? amplitudeFromLift(tl.lift, bph, liftAngle()) : null;
+    return a ? { amplitude: a, spread: 0, samples: ls.length, averaged: true } : null;
   }
 
   async function setMode(m: Mode) {
@@ -645,7 +654,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
     if (r && amp) {
       roAmp.value.textContent = String(Math.round(amp.amplitude));
       roAmp.el.dataset.grade = amplitudeGrade(amp.amplitude);
-      roAmp.sub.textContent = `lift angle ${liftAngle()}°${amp.spread > 30 ? ' · unsteady' : ''}`;
+      roAmp.sub.textContent = `lift angle ${liftAngle()}°${amp.averaged ? ' · from averaged ticks' : amp.spread > 30 ? ' · unsteady' : ''}`;
     } else {
       roAmp.value.textContent = '—';
       delete roAmp.el.dataset.grade;

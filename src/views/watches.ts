@@ -1,4 +1,6 @@
-import { db, isTimegraphable, MOVEMENT_TYPES, type Measurement, type TimeCheck, type Watch } from '../db';
+import { db, isTimegraphable, MOVEMENT_TYPES, type Measurement, type QuartzTest, type TimeCheck, type Watch } from '../db';
+import { quartzGrade } from '../analysis/quartz';
+import { batteryStatus, cellName } from './quartz-panel';
 import { driftGrade, driftOf, fmtDrift } from './time-check';
 import { applyCrop, dialGlyph, h, photoUrl } from '../util/dom';
 import { watchArt } from './watch-art';
@@ -23,7 +25,9 @@ export function watchesView(root: HTMLElement): void {
   );
 
   void (async () => {
-    const [watches, measurements, checks] = await Promise.all([db.watches.orderBy('name').toArray(), db.measurements.orderBy('takenAt').reverse().toArray(), db.checks.toArray()]);
+    const [watches, measurements, checks, qtests] = await Promise.all([db.watches.orderBy('name').toArray(), db.measurements.orderBy('takenAt').reverse().toArray(), db.checks.toArray(), db.qtests.orderBy('at').reverse().toArray()]);
+    const latestQ = new Map<string, QuartzTest>();
+    for (const t of qtests) if (!latestQ.has(t.watchId)) latestQ.set(t.watchId, t);
     const checksBy = new Map<string, TimeCheck[]>();
     for (const c of checks) checksBy.set(c.watchId, [...(checksBy.get(c.watchId) ?? []), c]);
     const byWatch = new Map<string, Measurement[]>();
@@ -63,7 +67,9 @@ export function watchesView(root: HTMLElement): void {
             h('h3', null, w.name),
             meta && h('p', { class: 'muted small' }, meta),
             w.caliber && h('p', { class: 'muted small' }, `Cal. ${w.caliber}`),
-            quartz && drift
+            quartz && latestQ.has(w.id)
+              ? quartzLine(latestQ.get(w.id)!)
+              : quartz && drift
               ? h('div', { class: 'latest' }, h('span', { class: 'rate-pill', 'data-grade': driftGrade(drift, true) }, fmtDrift(drift, true)), h('span', { class: 'muted small' }, `${MOVEMENT_TYPES[w.movementType!]} · ${drift.checks} checks`))
               : quartz
                 ? h('div', { class: 'latest muted small' }, `${MOVEMENT_TYPES[w.movementType!]} · no time checks yet`)
@@ -75,10 +81,28 @@ export function watchesView(root: HTMLElement): void {
                   h('span', { class: 'muted small' }, `${fmtMs(latest.beatError)} ms · ${fmtDate(latest.takenAt)}`),
                 )
               : h('div', { class: 'latest muted small' }, 'Not measured yet'),
+            quartz && batteryWarning(w, latestQ.get(w.id)),
             !(quartz && !ms.length) && h('p', { class: 'muted small count' }, `${ms.length} measurement${ms.length === 1 ? '' : 's'}`),
           ),
         );
       }),
     );
   })();
+}
+
+function quartzLine(t: QuartzTest): HTMLElement {
+  const v = t.perMonth;
+  return h(
+    'div',
+    { class: 'latest' },
+    h('span', { class: 'rate-pill', 'data-grade': quartzGrade(v) }, `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)} s/mo`),
+    h('span', { class: 'muted small' }, `± ${t.sigmaMonth.toFixed(1)} · quartz test · ${fmtDate(t.at)}`),
+  );
+}
+
+function batteryWarning(w: Watch, latest: QuartzTest | undefined): HTMLElement | '' {
+  if (latest?.stepSec === 2) return h('p', { class: 'small warn-text' }, w.movementType === 'solar' || w.movementType === 'kinetic' ? 'Low charge: 2-second steps' : 'Battery low: 2-second steps');
+  const st = batteryStatus(w);
+  if (st.due && st.years !== null) return h('p', { class: 'small warn-text' }, `${cellName(w)} ${Math.floor(st.years)} years old`);
+  return '';
 }

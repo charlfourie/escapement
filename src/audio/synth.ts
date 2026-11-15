@@ -118,3 +118,80 @@ export class TickSynth {
     this.frame += out.length;
   }
 }
+
+/**
+ * Simulated quartz watch: one stepping-motor click per step. Alternate steps
+ * sound slightly different, as on a real movement (the drive pulse
+ * alternates polarity). Used for the quartz test's demo mode.
+ */
+export interface QuartzSimParams {
+  /** Rate in parts per million (+ = fast). 1 ppm ≈ 2.6 s a month. */
+  ppm: number;
+  /** 1 normally, 2 for a low battery. */
+  stepSec: 1 | 2;
+  /** Background noise level (linear). */
+  noise: number;
+}
+
+export const DEFAULT_QSIM: QuartzSimParams = { ppm: 4, stepSec: 1, noise: 0.004 };
+
+export class QuartzSynth {
+  private params: QuartzSimParams;
+  private frame = 0;
+  private next = 0.3;
+  private step = 0;
+  private clicks: Click[] = [];
+  private seed: number;
+
+  constructor(
+    readonly sampleRate: number,
+    params: Partial<QuartzSimParams> = {},
+    seed = 0x51ed270b,
+  ) {
+    this.params = { ...DEFAULT_QSIM, ...params };
+    this.seed = seed >>> 0;
+  }
+
+  setParams(p: Partial<QuartzSimParams>): void {
+    this.params = { ...this.params, ...p };
+  }
+
+  private rand(): number {
+    let t = (this.seed = (this.seed + 0x6d2b79f5) >>> 0);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+
+  private gauss(): number {
+    const u = Math.max(1e-12, this.rand());
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * this.rand());
+  }
+
+  render(out: Float32Array): void {
+    const sr = this.sampleRate;
+    const blockStart = this.frame / sr;
+    const blockEnd = (this.frame + out.length) / sr;
+    const p = this.params;
+    while (this.next < blockEnd + 0.001) {
+      const odd = this.step % 2 === 1;
+      const t0 = this.next + this.gauss() * 0.00005;
+      const v = odd ? 0.75 : 1;
+      this.clicks.push({ start: t0, amp: 0.5 * v, freq: 3600 }, { start: t0 + 0.0012, amp: 0.3 * v, freq: 2300 });
+      this.next += p.stepSec / (1 + p.ppm * 1e-6);
+      this.step++;
+    }
+    for (let i = 0; i < out.length; i++) out[i] = this.gauss() * p.noise;
+    for (const c of this.clicks) {
+      if (c.start >= blockEnd || c.start + 0.006 <= blockStart) continue;
+      const i0 = Math.max(0, Math.ceil((c.start - blockStart) * sr));
+      const i1 = Math.min(out.length, Math.ceil((c.start + 0.006 - blockStart) * sr));
+      for (let i = i0; i < i1; i++) {
+        const dt = blockStart + i / sr - c.start;
+        out[i] += c.amp * Math.sin(2 * Math.PI * c.freq * dt) * Math.exp(-dt / 0.0007);
+      }
+    }
+    this.clicks = this.clicks.filter((c) => c.start + 0.006 > blockEnd);
+    this.frame += out.length;
+  }
+}

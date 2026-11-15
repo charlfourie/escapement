@@ -1,4 +1,4 @@
-import { db, POSITIONS, WIND_STATES, type Measurement, type Movement, type TimeCheck, type Watch } from '../db';
+import { db, POSITIONS, WIND_STATES, type Measurement, type Movement, type QuartzTest, type TimeCheck, type Watch } from '../db';
 import { h, toast } from '../util/dom';
 import { aiSettingsBlock } from './identify-panel';
 import { syncPanel } from '../sync/ui';
@@ -13,6 +13,8 @@ interface ExportFile {
   movements?: Movement[];
   /** Added in v0.5. */
   checks?: TimeCheck[];
+  /** Acoustic quartz tests, added in v0.4. */
+  qtests?: QuartzTest[];
 }
 
 const blobToDataUrl = (b: Blob) =>
@@ -45,6 +47,7 @@ async function exportJson() {
     watches: await Promise.all(watches.map(async (w) => ({ ...w, photo: w.photo ? await blobToDataUrl(w.photo) : null }))),
     measurements: await db.measurements.toArray(),
     checks: await db.checks.toArray(),
+    qtests: await db.qtests.toArray(),
     movements: await db.movements.toArray(),
   };
   download(`escapement-backup-${stamp()}.json`, JSON.stringify(file), 'application/json');
@@ -72,8 +75,10 @@ async function importJson(file: File): Promise<string> {
   const watches: Watch[] = await Promise.all(data.watches.map(async (w) => ({ ...w, photo: w.photo ? await dataUrlToBlob(w.photo) : null })));
   const movements = Array.isArray(data.movements) ? data.movements : [];
   const checks = Array.isArray(data.checks) ? data.checks : [];
-  await db.transaction('rw', db.watches, db.measurements, db.movements, db.checks, async () => {
+  const qtests = Array.isArray(data.qtests) ? data.qtests : [];
+  await db.transaction('rw', db.watches, db.measurements, db.movements, db.checks, db.qtests, async () => {
     await db.checks.bulkPut(checks);
+    await db.qtests.bulkPut(qtests);
     await db.watches.bulkPut(watches);
     await db.measurements.bulkPut(data.measurements);
     await db.movements.bulkPut(movements);

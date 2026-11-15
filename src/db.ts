@@ -35,6 +35,14 @@ export const MOVEMENT_TYPES: Record<MovementType, string> = {
  */
 export const isTimegraphable = (w: Pick<Watch, 'movementType'>) => !w.movementType || w.movementType === 'automatic' || w.movementType === 'manual' || w.movementType === 'other';
 
+export interface BatteryChange {
+  /** yyyy-mm-dd */
+  date: string;
+  /** Cell type, e.g. "SR626SW" or "rechargeable cell". */
+  type: string;
+  notes: string;
+}
+
 /** Focus point of a photo (0–1 across and down) and zoom (1 = fill the frame). */
 export interface PhotoCrop {
   x: number;
@@ -59,6 +67,8 @@ export interface Watch {
   photo: Blob | null;
   /** How the photo is framed in thumbnails; centre and no zoom when absent. */
   photoCrop?: PhotoCrop;
+  /** Battery changes, newest first (quartz watches). */
+  batteries?: BatteryChange[];
   createdAt: number;
   updatedAt: number;
 }
@@ -152,11 +162,41 @@ export interface TimeCheck {
   updatedAt: number;
 }
 
+/**
+ * An acoustic quartz test: the stepping motor timed over several minutes,
+ * corrected for the sound card's clock.
+ */
+export interface QuartzTest {
+  id: string;
+  watchId: string;
+  /** When the test ended (ms). */
+  at: number;
+  durationSec: number;
+  /** Clicks used. */
+  ticks: number;
+  /** 1 normally; 2 means the battery or charge is low. */
+  stepSec: 1 | 2;
+  /** Rate after clock correction: ppm and seconds per month (+ = fast). */
+  ppm: number;
+  perMonth: number;
+  /** 1-sigma uncertainty, seconds per month. */
+  sigmaMonth: number;
+  /** Rate against the sound card's clock alone. */
+  rawPpm: number;
+  /** Click timing scatter, ms. */
+  jitter: number;
+  /** Sound card clock correction used: where it came from and its value (ppm). */
+  clock: { source: 'test' | 'saved' | 'both' | 'none'; ppm: number | null; sigma: number | null };
+  notes: string;
+  updatedAt: number;
+}
+
 class EscapementDB extends Dexie {
   watches!: EntityTable<Watch, 'id'>;
   measurements!: EntityTable<Measurement, 'id'>;
   movements!: EntityTable<Movement, 'id'>;
   checks!: EntityTable<TimeCheck, 'id'>;
+  qtests!: EntityTable<QuartzTest, 'id'>;
 
   constructor() {
     super('escapement');
@@ -177,6 +217,7 @@ class EscapementDB extends Dexie {
         }
       });
     this.version(3).stores({ checks: 'id, watchId, at, [watchId+at]' });
+    this.version(4).stores({ qtests: 'id, watchId, at, [watchId+at]' });
   }
 }
 
@@ -218,10 +259,15 @@ export async function watchChecks(watchId: string): Promise<TimeCheck[]> {
   return db.checks.where('[watchId+at]').between([watchId, Dexie.minKey], [watchId, Dexie.maxKey]).toArray();
 }
 
+export async function watchQuartzTests(watchId: string): Promise<QuartzTest[]> {
+  return db.qtests.where('[watchId+at]').between([watchId, Dexie.minKey], [watchId, Dexie.maxKey]).reverse().toArray();
+}
+
 export async function deleteWatch(id: string): Promise<void> {
-  await db.transaction('rw', db.watches, db.measurements, db.checks, async () => {
+  await db.transaction('rw', db.watches, db.measurements, db.checks, db.qtests, async () => {
     await db.measurements.where('watchId').equals(id).delete();
     await db.checks.where('watchId').equals(id).delete();
+    await db.qtests.where('watchId').equals(id).delete();
     await db.watches.delete(id);
   });
 }

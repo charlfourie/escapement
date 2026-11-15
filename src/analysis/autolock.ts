@@ -129,6 +129,11 @@ export class AutoLock {
     this.lifts[stream].push(lift);
   }
 
+  /** Average beat shape heard by a stream, for amplitude when single ticks are too noisy. */
+  template(stream: number): number[] | null {
+    return this.aligners[stream]?.average ?? null;
+  }
+
   /** Drop ticks older than maxSec before the newest one. */
   trim(maxSec: number): void {
     for (let i = 0; i < this.streams.length; i++) {

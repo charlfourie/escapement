@@ -216,6 +216,8 @@ export interface AmplitudeResult {
   /** Spread (interquartile range) of the per-tick estimates, degrees. */
   spread: number;
   samples: number;
+  /** Read from the average of many ticks, because single ticks were too noisy. */
+  averaged?: boolean;
 }
 
 /**
@@ -223,6 +225,14 @@ export interface AmplitudeResult {
  * The balance swings θ(t) = A·sin(2πt/T); crossing the lift angle LA takes
  * t = (T/π)·asin(LA / 2A), so A = LA / (2·sin(π·t/T)) with T = 7200 / bph.
  */
+/** Amplitude for one lift time (seconds), or null when it's outside a plausible range. */
+export function amplitudeFromLift(lift: number, bph: number, liftAngle: number): number | null {
+  const T = 7200 / bph;
+  if (!(lift > 0 && lift < T / 4)) return null;
+  const a = liftAngle / (2 * Math.sin((Math.PI * lift) / T));
+  return a > 90 && a < 400 ? a : null;
+}
+
 export function amplitudeFrom(lifts: number[], bph: number, liftAngle: number): AmplitudeResult | null {
   const T = 7200 / bph;
   const amps = lifts
