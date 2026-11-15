@@ -81,9 +81,9 @@ export const SECONDS: Array<[Seconds, string]> = [
   ['small', 'Small seconds'],
   ['none', 'None'],
 ];
-export const DIAL_SWATCHES = ['#13201a', '#1f1a12', '#121a24', '#1a1b1c', '#22160f', '#e9e4d8', '#f4f4f1', '#1d3a5f', '#14472f', '#5a1f24', '#b9bec2', '#d9b77a'];
-export const HAND_SWATCHES = ['#7cf2a5', '#f5b84a', '#8cc8ff', '#e6efe9', '#ff9d7a', '#1b2a4a', '#111111', '#c9a24a', '#ff5a4a'];
-export const STRAP_SWATCHES = ['#1b211e', '#5a3a22', '#2b2018', '#203247', '#2e3b2c', '#6b6f73', '#c96a2a', '#7a1f2b'];
+export const DIAL_SWATCHES = ['#1a1b1c', '#121a24', '#1d3a5f', '#14472f', '#5a1f24', '#e9e4d8', '#b9bec2', '#d9b77a'];
+export const HAND_SWATCHES = ['#e6efe9', '#111111', '#1b2a4a', '#c9a24a', '#7cf2a5', '#ff5a4a'];
+export const STRAP_SWATCHES = ['#1b211e', '#5a3a22', '#203247', '#2e3b2c', '#6b6f73', '#7a1f2b'];
 
 const AUTO_PALETTES: Array<{ dial: string; hand: string }> = [
   { dial: '#13201a', hand: '#7cf2a5' },
