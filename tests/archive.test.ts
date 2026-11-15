@@ -12,10 +12,10 @@ describe('archive importer', () => {
         'Manufacturer / Brand': 'Citizen / Miyota', Caliber: '8200', 'Size in French Lignes': "11 1/2'''", Winding: 'Automatic',
         Escapement: 'Lever (Swiss, English, Glashütte)', Jewels: '21', 'Beats per hour': '21,600', 'Power Reserve': 'Approx. 43 hours',
         'Production Period': '1974+', Country: 'Japan', 'Seconds Hand': 'Sweeping seconds (central seconds)', 'Date, Day, Month...': 'Date & Day',
-        Identification: 'Rotor marked with CITIZEN 8200.', 'Contributor ©': 'Uhrforum.de member Badener (Andreas Kelz)',
+        Identification: 'Rotor marked with CITIZEN 8200.', 'Contributor ©': 'Uhrforum.de member example',
       }),
     )!;
-    expect(r).toMatchObject({ m: 'Citizen / Miyota', c: '8200', t: 'automatic', b: 21600, e: 'lever', j: '21', pr: 43, mm: 25.9, y: '1974+', co: 'Japan', sec: 'c', by: 'Badener (Andreas Kelz)' });
+    expect(r).toMatchObject({ m: 'Citizen / Miyota', c: '8200', t: 'automatic', b: 21600, e: 'lever', j: '21', pr: 43, mm: 25.9, y: '1974+', co: 'Japan', sec: 'c' });
     expect(r.bq).toBeUndefined();
   });
 
@@ -25,7 +25,6 @@ describe('archive importer', () => {
     expect(convert(raw('AS 2', { 'Production Period': 'Unknown, probably around 1928' }))!.y).toBe('c. 1928');
     expect(convert(raw('AS 4', { 'Production Period': 'Unknown. Perhaps around 1920, certainly before 1936, because of old AS logo' }))!.y).toBe('c. 1920');
     expect(convert(raw('AM 154', { 'Production Period': 'Approx. 30 hours' }))!.y).toBeUndefined();
-    expect(convert(raw('AS 5', { 'Contributor ©': 'Uhrforum Member Schnupperfuss + Badener (Andreas Kelz)' }))!.by).toBe('Schnupperfuss and Badener (Andreas Kelz)');
     expect(convert(raw('Omega 39.5', { 'Size in French Lignes': "39,5 mm (17 1/2''')" }))!.mm).toBe(39.5);
     expect(convert(raw('Felsa 1560', { 'Size in French Lignes': '1560' }))!.mm).toBeUndefined();
     expect(convert(raw('AS 6', { 'Production Period': 'Presumably around 1928 (see remarks)' }))!.y).toBe('c. 1928');
@@ -34,7 +33,7 @@ describe('archive importer', () => {
 });
 
 describe('archive lookup', () => {
-  const rec = (s: string, n: string, m: string, c: string): ArchiveRec => ({ s, n, m, c, t: 'manual', b: 18000, e: 'lever', by: 'x' });
+  const rec = (s: string, n: string, m: string, c: string): ArchiveRec => ({ s, n, m, c, t: 'manual', b: 18000, e: 'lever' });
   setArchive([
     rec('citizen-miyota-8200', 'Citizen / Miyota 8200', 'Citizen / Miyota', '8200'),
     rec('bulova-11do', 'Bulova 11DO = Caravelle 11DO = Citizen 0240', 'Bulova / Caravelle / Citizen', 'Bulova 11DO = Caravelle 11DO = Citizen 0240'),

@@ -256,7 +256,7 @@ function referenceCard(r: RefMovement, title = 'Reference specs'): HTMLElement {
           { class: 'small muted' },
           'From ',
           h('a', { href: r.source, target: '_blank', rel: 'noopener' }, 'Watch Movements Archive ↗'),
-          `, contributed by ${a.contributor === 'Anonymous' ? 'an anonymous member' : a.contributor} of UHRFORUM.de. Photos and full notes are on the archive page.`,
+          ', a database by the UHRFORUM.de community. Photos and full notes are on the archive page.',
         )
       : h('p', { class: 'small muted' }, 'Source: ', h('a', { href: r.source, target: '_blank', rel: 'noopener' }, new URL(r.source).hostname.replace(/^www\./, '')), ' · ', h('a', { href: ranfftUrl(r.maker.split(/[ (/]/)[0], r.caliber), target: '_blank', rel: 'noopener' }, 'Ranfft DB ↗')),
   );

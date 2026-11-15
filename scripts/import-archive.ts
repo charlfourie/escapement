@@ -3,7 +3,7 @@
  * (https://watch-movements-archive.com, a database from the UHRFORUM.de
  * community), used with the site admin's permission. Only the facts
  * Escapement needs are kept: no photos, no descriptions. Every entry keeps
- * its contributor credit and a link back to its archive page.
+ * a link back to its archive page.
  *
  * Input: the JSON written by the crawler's parse.py (title, fields, slug).
  * Output: src/data/archive.json
@@ -62,16 +62,6 @@ function years(v: string): string | undefined {
   return /\d{4}/.test(y) ? y : undefined;
 }
 
-/** "Uhrforum.de members buchenhain and Badener (Andreas Kelz)" → "buchenhain and Badener (Andreas Kelz)". */
-function contributor(v: string): string {
-  const names = v
-    .replace(/uhrforum(?:\.de)?\s+members?\s+/gi, '')
-    .split(/\s+(?:and|\+|&)\s+|,\s*/)
-    .map((x) => x.trim())
-    .filter(Boolean);
-  return names.length ? names.join(' and ') : 'Anonymous';
-}
-
 export function convert(r: Raw): ArchiveRec | null {
   const f = Object.fromEntries(Object.entries(r.fields).map(([k, v]) => [k, clean(v)]));
   const title = clean(r.title);
@@ -86,7 +76,6 @@ export function convert(r: Raw): ArchiveRec | null {
     t: /battery/i.test(winding) || /tuning/i.test(esc) ? 'quartz' : /automatic/i.test(winding) ? 'automatic' : 'manual',
     ...bph(f['Beats per hour'] ?? ''),
     e: /tuning/i.test(esc) ? 'fork' : /pin/i.test(esc) ? 'pin' : /cylinder/i.test(esc) ? 'cylinder' : /lever/i.test(esc) ? 'lever' : '',
-    by: contributor(f['Contributor ©'] ?? ''),
   };
   const j = f['Jewels'];
   if (j && !unknown(j)) rec.j = j;

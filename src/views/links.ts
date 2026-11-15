@@ -1,5 +1,5 @@
 import { h } from '../util/dom';
-import { ARCHIVE_URL, loadArchive } from '../data/movements';
+import { ARCHIVE_URL } from '../data/movements';
 
 interface Link {
   name: string;
@@ -12,7 +12,7 @@ const SOURCES: Link[] = [
   {
     name: 'Watch Movements Archive',
     url: ARCHIVE_URL,
-    what: 'A database of thousands of movements, many of them vintage, built by members of the German watch forum UHRFORUM.de. Escapement’s archive entries (beat rate, jewels, size, power reserve, production years, identification tips) come from it, with the admin’s permission. Each entry credits its contributor and links back to its page, where you’ll find photos and full notes.',
+    what: 'A database of thousands of movements, many of them vintage, built by members of the German watch forum UHRFORUM.de. Escapement’s archive entries (beat rate, jewels, size, power reserve, production years, identification tips) come from it, with the admin’s permission. Each entry links back to its page, where you’ll find photos and full notes.',
   },
   {
     name: 'Caliber Corner',
@@ -43,7 +43,7 @@ const linkList = (links: Link[]) =>
   );
 
 export function linksView(root: HTMLElement): void {
-  const credits = h('p', { class: 'muted small' });
+  const credits = h('p', { class: 'muted small' }, 'Thank you to everyone who has contributed to these sites. Escapement’s reference library wouldn’t exist without your work.');
   root.append(
     h(
       'div',
@@ -54,14 +54,4 @@ export function linksView(root: HTMLElement): void {
       h('section', { class: 'panel' }, h('h2', null, 'More information'), linkList(MORE)),
     ),
   );
-  // Thank the archive's contributors by name, busiest first.
-  void loadArchive().then((all) => {
-    const n = new Map<string, number>();
-    for (const m of all) {
-      const by = m.archive?.contributor;
-      if (by && by !== 'Anonymous') for (const p of by.split(/\s+and\s+/)) n.set(p, (n.get(p) ?? 0) + 1);
-    }
-    const top = [...n].sort((a, b) => b[1] - a[1]);
-    credits.textContent = `Watch Movements Archive contributors whose entries appear here: ${top.map(([p, c]) => `${p} (${c})`).join(', ')}. Thank you.`;
-  });
 }

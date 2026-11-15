@@ -44,7 +44,6 @@ export interface RefMovement {
     bphUnsure?: boolean;
     hz?: string;
     identification?: string;
-    contributor: string;
   };
 }
 
@@ -139,7 +138,7 @@ export const referenceById = (id: string): RefMovement | undefined => REFERENCE_
 // ---------------------------------------------------------------------------
 // Watch Movements Archive (watch-movements-archive.com), from the UHRFORUM.de
 // community, used with the site admin's permission. Facts only, each entry
-// credited to its contributor and linked to its archive page. Thousands of
+// linked to its archive page. Thousands of
 // entries, so it's loaded on demand.
 
 import type { ArchiveRec } from './archive-types';
@@ -176,7 +175,6 @@ export function fromArchive(r: ArchiveRec): RefMovement {
       bphUnsure: !!r.bq,
       hz: r.hz,
       identification: r.id,
-      contributor: r.by,
     },
   };
 }

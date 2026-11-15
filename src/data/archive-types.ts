@@ -37,7 +37,5 @@ export interface ArchiveRec {
   f?: string;
   /** How to identify it ("Rotor marked with CITIZEN 8200."). */
   id?: string;
-  /** Contributor credit. */
-  by: string;
 }
 
