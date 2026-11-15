@@ -1,6 +1,6 @@
 import { STANDARD_BPH } from '../analysis/analyze';
 import { blankWatch, db, isTimegraphable, MOVEMENT_TYPES, upsertMovement, type MovementSpecs, type MovementType, type Watch } from '../db';
-import { dialGlyph, h, photoUrl, resizeImage, select, toast } from '../util/dom';
+import { applyCrop, dialGlyph, h, photoUrl, resizeImage, select, toast } from '../util/dom';
 import { fmtBph, fmtHz } from '../util/format';
 import { identifyPanel } from './identify-panel';
 
@@ -28,8 +28,68 @@ export function watchFormView(root: HTMLElement, id: string | null): void {
     const date = (key: 'purchaseDate' | 'lastService', label: string) =>
       h('label', { class: 'field' }, h('span', null, label), h('input', { type: 'date', value: w[key], oninput: (e: Event) => (w[key] = (e.target as HTMLInputElement).value) }));
 
+    // Photo framing: drag to move the focus, slider to zoom. The preview has
+    // the cards' 4:3 shape, so what you see is what the list shows.
     const preview = h('div', { class: 'photo-preview' });
-    const renderPreview = () => preview.replaceChildren(w.photo ? h('img', { src: photoUrl(w.photo), alt: '' }) : dialGlyph());
+    const zoom = h('input', { type: 'range', min: 1, max: 3, step: 0.05, 'aria-label': 'Zoom' });
+    const cropRow = h(
+      'div',
+      { class: 'crop-row' },
+      h('span', { class: 'muted small' }, 'Zoom'),
+      zoom,
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'btn small',
+          onclick: () => {
+            delete w.photoCrop;
+            zoom.value = '1';
+            renderPreview();
+          },
+        },
+        'Reset',
+      ),
+    );
+    const cropHint = h('p', { class: 'muted small crop-hint' }, 'Drag the photo to frame the watch.');
+    let previewImg: HTMLImageElement | null = null;
+    const crop = () => (w.photoCrop ??= { x: 0.5, y: 0.5, zoom: 1 });
+    zoom.oninput = () => {
+      crop().zoom = Number(zoom.value);
+      if (previewImg) applyCrop(previewImg, w.photoCrop);
+    };
+    let drag: { px: number; py: number; x: number; y: number } | null = null;
+    preview.addEventListener('pointerdown', (e: PointerEvent) => {
+      if (!w.photo) return;
+      const c = crop();
+      drag = { px: e.clientX, py: e.clientY, x: c.x, y: c.y };
+      preview.setPointerCapture(e.pointerId);
+      preview.classList.add('dragging');
+    });
+    preview.addEventListener('pointermove', (e: PointerEvent) => {
+      if (!drag || !previewImg) return;
+      const r = preview.getBoundingClientRect();
+      const c = crop();
+      // Dragging right shows more of the left side, so the focus moves left.
+      const k = 1.6 / c.zoom;
+      c.x = Math.min(1, Math.max(0, drag.x - ((e.clientX - drag.px) / r.width) * k));
+      c.y = Math.min(1, Math.max(0, drag.y - ((e.clientY - drag.py) / r.height) * k));
+      applyCrop(previewImg, c);
+    });
+    const endDrag = () => {
+      drag = null;
+      preview.classList.remove('dragging');
+    };
+    preview.addEventListener('pointerup', endDrag);
+    preview.addEventListener('pointercancel', endDrag);
+    const renderPreview = () => {
+      previewImg = w.photo ? h('img', { src: photoUrl(w.photo), alt: '', draggable: 'false' }) : null;
+      if (previewImg) applyCrop(previewImg, w.photoCrop);
+      preview.classList.toggle('croppable', Boolean(previewImg));
+      preview.replaceChildren(previewImg ?? dialGlyph());
+      zoom.value = String(w.photoCrop?.zoom ?? 1);
+      cropRow.hidden = cropHint.hidden = !w.photo;
+    };
     renderPreview();
     const removeBtn = h(
       'button',
@@ -38,6 +98,7 @@ export function watchFormView(root: HTMLElement, id: string | null): void {
         class: 'btn small',
         onclick: () => {
           w.photo = null;
+          delete w.photoCrop;
           renderPreview();
           removeBtn.hidden = true;
         },
@@ -53,6 +114,7 @@ export function watchFormView(root: HTMLElement, id: string | null): void {
         if (!f) return;
         try {
           w.photo = await resizeImage(f);
+          delete w.photoCrop;
           renderPreview();
           removeBtn.hidden = false;
         } catch {
@@ -80,6 +142,8 @@ export function watchFormView(root: HTMLElement, id: string | null): void {
         'div',
         { class: 'form-photo' },
         preview,
+        cropHint,
+        cropRow,
         h('label', { class: 'btn small file' }, w.photo ? 'Change photo' : 'Add photo', fileInput),
         removeBtn,
       ),
@@ -136,7 +200,10 @@ export function watchFormView(root: HTMLElement, id: string | null): void {
         Object.assign(w, patch);
         pendingSpecs = { ...pendingSpecs, ...specs };
         if (notes) w.notes = w.notes.trim() ? `${w.notes.trim()}\n\n${notes}` : notes;
-        if (photo) w.photo = photo;
+        if (photo) {
+          w.photo = photo;
+          delete w.photoCrop;
+        }
         renderForm();
         toast('Details added. Review them, then save.');
         formHost.scrollIntoView({ behavior: 'smooth', block: 'start' });

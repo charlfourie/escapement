@@ -152,3 +152,12 @@ export function encodeWav(samples: Float32Array, sampleRate: number): Blob {
   }
   return new Blob([buf], { type: 'audio/wav' });
 }
+
+/** Frame a cover-fitted photo on a focus point, zoomed around it. */
+export function applyCrop(img: HTMLElement, crop?: { x: number; y: number; zoom: number }): void {
+  const x = Math.round((crop?.x ?? 0.5) * 1000) / 10;
+  const y = Math.round((crop?.y ?? 0.5) * 1000) / 10;
+  img.style.objectPosition = `${x}% ${y}%`;
+  img.style.transformOrigin = `${x}% ${y}%`;
+  img.style.transform = crop && crop.zoom > 1 ? `scale(${crop.zoom})` : '';
+}

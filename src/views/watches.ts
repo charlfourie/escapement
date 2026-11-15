@@ -1,11 +1,14 @@
 import { db, isTimegraphable, MOVEMENT_TYPES, type Measurement, type TimeCheck, type Watch } from '../db';
 import { driftGrade, driftOf, fmtDrift } from './time-check';
-import { dialGlyph, h, photoUrl } from '../util/dom';
+import { applyCrop, dialGlyph, h, photoUrl } from '../util/dom';
 import { watchArt } from './watch-art';
 import { fmtDate, fmtMs, fmtRate, rateGrade } from '../util/format';
 
 export function watchThumb(w: Watch, cls = 'thumb'): HTMLElement {
-  return w.photo ? h('div', { class: cls }, h('img', { src: photoUrl(w.photo), alt: '' })) : h('div', { class: `${cls} empty` }, watchArt(w));
+  if (!w.photo) return h('div', { class: `${cls} empty` }, watchArt(w));
+  const img = h('img', { src: photoUrl(w.photo), alt: '' });
+  applyCrop(img, w.photoCrop);
+  return h('div', { class: cls }, img);
 }
 
 export function watchesView(root: HTMLElement): void {

@@ -35,6 +35,13 @@ export const MOVEMENT_TYPES: Record<MovementType, string> = {
  */
 export const isTimegraphable = (w: Pick<Watch, 'movementType'>) => !w.movementType || w.movementType === 'automatic' || w.movementType === 'manual' || w.movementType === 'other';
 
+/** Focus point of a photo (0–1 across and down) and zoom (1 = fill the frame). */
+export interface PhotoCrop {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
 export interface Watch {
   id: string;
   name: string;
@@ -50,6 +57,8 @@ export interface Watch {
   lastService: string;
   notes: string;
   photo: Blob | null;
+  /** How the photo is framed in thumbnails; centre and no zoom when absent. */
+  photoCrop?: PhotoCrop;
   createdAt: number;
   updatedAt: number;
 }
