@@ -1,5 +1,5 @@
 import { downsample, type Analysis } from '../analysis/analyze';
-import { blankWatch, db, isTimegraphable, newId, POSITIONS, WIND_STATES, type Position, type Watch, type WindState } from '../db';
+import { blankWatch, db, isTimegraphable, newId, POSITIONS, WIND_STATES, type Measurement, type Position, type Watch, type WindState } from '../db';
 import { h, select, toast } from '../util/dom';
 import { fmtMs, fmtRate, rateGrade } from '../util/format';
 
@@ -68,6 +68,8 @@ export class PositionTest {
   private progressFrac = 0;
   private running = false;
   private readonly body: HTMLElement;
+  /** The saved set: every completed test saves on its own, then can be edited. */
+  private saved: { testId: string; watchId: string; wind: WindState; notes: string } | null = null;
 
   constructor(private readonly host: PositionTestHost) {
     this.body = h('div', { class: 'pt-body' });
@@ -114,6 +116,7 @@ export class PositionTest {
   reset(): void {
     this.slots = TEST_ORDER.map(() => null);
     this.step = 0;
+    this.saved = null;
     this.render();
     this.host.onChange();
   }
@@ -121,8 +124,58 @@ export class PositionTest {
   private advance(): void {
     const next = this.slots.findIndex((s) => s === null);
     this.step = next === -1 ? TEST_ORDER.length : next;
+    if (this.done && this.results().length) void this.saveSet();
     this.render();
     this.host.onChange();
+  }
+
+  /**
+   * Save (or, after re-measuring a position, re-save) the set: to the watch
+   * chosen on Measure, or unassigned in the log.
+   */
+  private async saveSet(): Promise<void> {
+    const results = this.results();
+    if (!this.saved) {
+      const id = this.host.getWatchId();
+      const w = this.host.getWatches().find((x) => x.id === id && isTimegraphable(x));
+      this.saved = { testId: newId(), watchId: w?.id ?? '', wind: 'unknown', notes: '' };
+    } else {
+      const testId = this.saved.testId;
+      const old = (await db.measurements.filter((m) => m.testId === testId).primaryKeys()) as string[];
+      await db.measurements.bulkDelete(old);
+    }
+    const sv = this.saved;
+    const now = Date.now();
+    await db.measurements.bulkAdd(
+      results.map((r, i) => ({
+        id: newId(),
+        watchId: sv.watchId,
+        takenAt: now + i, // keep the test's order stable
+        position: r.position,
+        wind: sv.wind,
+        durationSec: r.analysis.duration,
+        bph: r.analysis.bph,
+        rate: r.analysis.rate,
+        beatError: r.analysis.beatError,
+        amplitude: r.amplitude,
+        jitter: r.analysis.jitter,
+        ticks: r.analysis.ticks,
+        quality: r.analysis.quality,
+        notes: setNotes(sv.notes),
+        trace: downsample(r.analysis.points, 400),
+        testId: sv.testId,
+      })),
+    );
+    const w = this.host.getWatches().find((x) => x.id === sv.watchId);
+    toast(w ? `Saved ${results.length} positions to ${w.name}` : `Saved ${results.length} positions to the log`);
+    if (sv.watchId) await this.host.onSaved(sv.watchId);
+    this.render();
+  }
+
+  private async updateSet(patch: Partial<Measurement>): Promise<void> {
+    if (!this.saved) return;
+    const ids = (await db.measurements.filter((m) => m.testId === this.saved!.testId).primaryKeys()) as string[];
+    await Promise.all(ids.map((id) => db.measurements.update(id, patch)));
   }
 
   private select(i: number): void {
@@ -213,58 +266,48 @@ export class PositionTest {
   }
 
   private saveForm(results: StepResult[]): HTMLElement {
+    const sv = this.saved;
+    if (!sv) return h('p', { class: 'muted small' }, 'Saving…');
     const watches = this.host.getWatches().filter(isTimegraphable);
-    let targetId = this.host.getWatchId() || (watches[0]?.id ?? '__new');
-    let wind: WindState = 'unknown';
+    const w = watches.find((x) => x.id === sv.watchId);
     const nameInput = h('input', { type: 'text', placeholder: 'e.g. Seiko SPB143' });
-    const nameField = h('label', { class: 'field' }, h('span', null, 'New watch name'), nameInput);
-    nameField.hidden = targetId !== '__new';
-    const notes = h('input', { type: 'text', placeholder: 'Optional, e.g. fresh off a full wind' });
-    const saveBtn = h('button', { type: 'button', class: 'btn primary', onclick: () => void save() }, 'Save all positions');
-
-    const save = async () => {
-      let target = watches.find((w) => w.id === targetId);
-      if (targetId === '__new') {
-        const name = nameInput.value.trim();
-        if (!name) return void nameInput.focus();
-        target = { ...blankWatch(), name, bph: results[0].analysis.bph };
-        await db.watches.add(target);
-      }
-      if (!target) return;
-      saveBtn.disabled = true;
-      const testId = newId();
-      const now = Date.now();
-      await db.measurements.bulkAdd(
-        results.map((r, i) => ({
-          id: newId(),
-          watchId: target!.id,
-          takenAt: now + i, // keep the test's order stable
-          position: r.position,
-          wind,
-          durationSec: r.analysis.duration,
-          bph: r.analysis.bph,
-          rate: r.analysis.rate,
-          beatError: r.analysis.beatError,
-          amplitude: r.amplitude,
-          jitter: r.analysis.jitter,
-          ticks: r.analysis.ticks,
-          quality: r.analysis.quality,
-          notes: [`6-position test`, notes.value.trim()].filter(Boolean).join(' · '),
-          trace: downsample(r.analysis.points, 400),
-          testId,
-        })),
-      );
-      toast(`Saved ${results.length} positions to ${target.name}`);
-      await this.host.onSaved(target.id);
-      this.body.replaceChildren(
-        h('p', null, `Saved ${results.length} positions to ${target.name}. `, h('a', { href: `#/watches/${target.id}` }, 'View history →')),
-        h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn', onclick: () => this.reset() }, 'Start a new test')),
-      );
-    };
+    const newRow = h(
+      'div',
+      { class: 'battery-row', hidden: true },
+      h('label', { class: 'field grow' }, h('span', null, 'New watch name'), nameInput),
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'btn small',
+          onclick: async () => {
+            const name = nameInput.value.trim();
+            if (!name) return void nameInput.focus();
+            const nw = { ...blankWatch(), name, bph: results[0].analysis.bph };
+            await db.watches.add(nw);
+            sv.watchId = nw.id;
+            await this.updateSet({ watchId: nw.id });
+            await this.host.onSaved(nw.id);
+            this.render();
+          },
+        },
+        'Create and assign',
+      ),
+    );
+    const notes = h('input', {
+      type: 'text',
+      value: sv.notes,
+      placeholder: 'Optional, e.g. fresh off a full wind',
+      onchange: (e: Event) => {
+        sv.notes = (e.target as HTMLInputElement).value.trim();
+        void this.updateSet({ notes: setNotes(sv.notes) });
+      },
+    });
 
     return h(
       'div',
       { class: 'pt-save' },
+      h('p', { class: 'small' }, w ? `Saved to ${w.name}. ` : 'Saved to the log, not linked to a watch yet. ', w ? h('a', { href: `#/watches/${w.id}` }, 'View history →') : h('a', { href: '#/log' }, 'Open the Log →'), h('span', { class: 'muted' }, ' Changes below save as you make them.')),
       h(
         'div',
         { class: 'form-grid' },
@@ -272,19 +315,53 @@ export class PositionTest {
           'label',
           { class: 'field' },
           h('span', null, 'Watch'),
-          select([...watches.map((w): [string, string] => [w.id, w.name]), ['__new', '+ New watch…']], targetId, (v) => {
-            targetId = v;
-            nameField.hidden = v !== '__new';
+          select([['', 'No watch (log only)'], ...watches.map((x): [string, string] => [x.id, x.name]), ['__new', '+ New watch…']], sv.watchId, (v) => {
+            newRow.hidden = v !== '__new';
+            if (v === '__new') return void nameInput.focus();
+            sv.watchId = v;
+            void this.updateSet({ watchId: v }).then(async () => {
+              if (v) await this.host.onSaved(v);
+              this.render();
+            });
           }),
         ),
-        nameField,
-        h('label', { class: 'field' }, h('span', null, 'Wind'), select(Object.entries(WIND_STATES) as Array<[WindState, string]>, wind, (v) => (wind = v as WindState))),
+        h(
+          'label',
+          { class: 'field' },
+          h('span', null, 'Wind'),
+          select(Object.entries(WIND_STATES) as Array<[WindState, string]>, sv.wind, (v) => {
+            sv.wind = v as WindState;
+            void this.updateSet({ wind: sv.wind });
+          }),
+        ),
         h('label', { class: 'field wide' }, h('span', null, 'Notes'), notes),
       ),
-      h('div', { class: 'actions' }, saveBtn, h('button', { type: 'button', class: 'btn', onclick: () => this.reset() }, 'Discard')),
+      newRow,
+      h(
+        'div',
+        { class: 'actions' },
+        h('button', { type: 'button', class: 'btn', onclick: () => this.reset() }, 'Start a new test'),
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'btn danger small',
+            onclick: async () => {
+              if (!confirm('Delete this six-position test?')) return;
+              const ids = (await db.measurements.filter((m) => m.testId === sv.testId).primaryKeys()) as string[];
+              await db.measurements.bulkDelete(ids);
+              toast('Test deleted');
+              this.reset();
+            },
+          },
+          'Delete this test',
+        ),
+      ),
     );
   }
 }
+
+const setNotes = (notes: string) => ['6-position test', notes].filter(Boolean).join(' · ');
 
 function instructions(p: Position): string {
   switch (p) {

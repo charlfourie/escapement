@@ -4,10 +4,10 @@ import { placementGuide } from './placement';
 import { AutoLock, type LockState } from '../analysis/autolock';
 import { TickAligner } from '../analysis/align';
 import type { SimParams } from '../audio/synth';
-import { amplitudeFrom, amplitudeFromLift, analyze, downsample, STANDARD_BPH, type Analysis, type AmplitudeResult } from '../analysis/analyze';
+import { amplitudeFrom, amplitudeFromLift, analyze, downsample, isValidReading, MIN_SAVE_QUALITY, MIN_SAVE_SEC, STANDARD_BPH, type Analysis, type AmplitudeResult } from '../analysis/analyze';
 import { liftFromEnvelope } from '../analysis/lift';
 import { PositionTest, SETTLE_SEC, STEP_SEC } from './position-test';
-import { blankWatch, db, isTimegraphable, newId, POSITIONS, WIND_STATES, type Position, type Watch, type WindState } from '../db';
+import { blankWatch, db, isTimegraphable, newId, POSITIONS, WIND_STATES, type Measurement, type Position, type Watch, type WindState } from '../db';
 import { loadPrefs, savePrefs } from '../prefs';
 import { drawTrace, drawWaveform } from '../ui/canvas';
 import { downloadBlob, encodeWav, h, select, toast } from '../util/dom';
@@ -351,7 +351,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
   }
 
   function renderWatchSelect() {
-    const opts: Array<[string, string]> = [['', watches.length ? 'Quick test (no watch)' : 'Quick test'], ...watches.filter(isTimegraphable).map((w): [string, string] => [w.id, w.name])];
+    const opts: Array<[string, string]> = [['', 'No watch (saved to the Log)'], ...watches.filter(isTimegraphable).map((w): [string, string] => [w.id, w.name])];
     watchSelWrap.replaceChildren(
       select(opts, watchId, (v) => {
         watchId = v;
@@ -364,7 +364,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
   function applyWatchBph() {
     const w = watches.find((x) => x.id === watchId);
     if (w && !isTimegraphable(w)) {
-      showMessage(`${w.name} is a quartz watch, which a timegrapher can’t read. Use Time checks on its page instead.`, 'info');
+      showMessage(`${w.name} is a quartz watch, which a timegrapher can’t read. Use the quartz test or time checks on its page instead.`, 'info');
       watchId = '';
       return applyWatchBph();
     }
@@ -619,7 +619,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
     update(false);
     renderLockStatus();
     renderState();
-    if (showSave) renderSave();
+    if (showSave) void renderSave();
   }
 
   function update(recompute = true) {
@@ -727,7 +727,11 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
   }
 
   // ---------- save ----------
-  function renderSave() {
+  /**
+   * Every valid reading is saved as soon as it stops, to the chosen watch or,
+   * with none chosen, to the log as unassigned. The panel then edits it.
+   */
+  async function renderSave() {
     savePanel.hidden = false;
     const r = full;
     if (!r) {
@@ -737,60 +741,74 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
       );
       return;
     }
-
-    let targetId = watchId || (watches[0]?.id ?? '__new');
-    let position: Position = 'DU';
-    let wind: WindState = 'unknown';
-    const nameInput = h('input', { type: 'text', placeholder: 'e.g. Seiko SPB143', required: true });
-    const nameField = h('label', { class: 'field' }, h('span', null, 'New watch name'), nameInput);
-    nameField.hidden = targetId !== '__new';
-    const notes = h('input', { type: 'text', placeholder: 'Optional, e.g. after a day on the wrist' });
-
-    const watchOpts: Array<[string, string]> = [...watches.filter(isTimegraphable).map((w): [string, string] => [w.id, w.name]), ['__new', '+ New watch…']];
-    const saveBtn = h('button', { class: 'btn primary', onclick: () => void doSave() }, 'Save measurement');
-
-    async function doSave() {
-      let target = watches.find((w) => w.id === targetId);
-      if (targetId === '__new') {
-        const name = nameInput.value.trim();
-        if (!name) {
-          nameInput.focus();
-          return;
-        }
-        target = { ...blankWatch(), name, bph: r!.bph };
-        await db.watches.add(target);
-      }
-      if (!target) return;
-      saveBtn.disabled = true;
-      await db.measurements.add({
-        id: newId(),
-        watchId: target.id,
-        takenAt: Date.now(),
-        position,
-        wind,
-        durationSec: r!.duration,
-        bph: r!.bph,
-        rate: r!.rate,
-        beatError: r!.beatError,
-        amplitude: fullAmp?.amplitude ?? null,
-        jitter: r!.jitter,
-        ticks: r!.ticks,
-        quality: r!.quality,
-        notes: notes.value.trim(),
-        trace: downsample(r!.points, 800),
-      });
-      watchId = target.id;
-      savePrefs({ lastWatch: watchId });
-      await loadWatches();
+    if (!isValidReading(r)) {
+      const why = r.duration < MIN_SAVE_SEC ? `only ${Math.round(r.duration)} s long` : `only ${Math.round(r.quality * 100)}% clean beats`;
       savePanel.replaceChildren(
-        h('header', { class: 'panel-head' }, h('h2', null, 'Saved')),
-        h('p', null, `${fmtRate(r!.rate)} s/d in ${POSITIONS[position].toLowerCase()} saved to ${target.name}. `, h('a', { href: `#/watches/${target.id}` }, 'View history →')),
+        h('header', { class: 'panel-head' }, h('h2', null, 'Not saved')),
+        h('p', { class: 'muted' }, `This reading wasn’t saved automatically: it was ${why}. Readings of at least ${MIN_SAVE_SEC} s with ${Math.round(MIN_SAVE_QUALITY * 100)}% clean beats save on their own.`),
+        h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: () => void autoSave(r) }, 'Save anyway')),
       );
-      toast(`Saved to ${target.name}`);
+      return;
     }
+    await autoSave(r);
+  }
 
+  async function autoSave(r: Analysis) {
+    const target = watches.find((w) => w.id === watchId && isTimegraphable(w));
+    const rec: Measurement = {
+      id: newId(),
+      watchId: target?.id ?? '',
+      takenAt: Date.now(),
+      position: loadPrefs().lastPosition,
+      wind: 'unknown',
+      durationSec: r.duration,
+      bph: r.bph,
+      rate: r.rate,
+      beatError: r.beatError,
+      amplitude: fullAmp?.amplitude ?? null,
+      jitter: r.jitter,
+      ticks: r.ticks,
+      quality: r.quality,
+      notes: '',
+      trace: downsample(r.points, 800),
+    };
+    await db.measurements.add(rec);
+    toast(target ? `Saved to ${target.name}` : 'Saved to the log');
+    renderSaved(rec, r);
+  }
+
+  function renderSaved(rec: Measurement, r: Analysis) {
+    const update = (patch: Partial<Measurement>) => {
+      Object.assign(rec, patch);
+      void db.measurements.update(rec.id, patch);
+    };
+    const title = h('h2');
+    const where = h('p', { class: 'small' });
+    const nameInput = h('input', { type: 'text', placeholder: 'e.g. Seiko SPB143' });
+    const createBtn = h('button', { class: 'btn small', type: 'button' }, 'Create and assign');
+    const newRow = h('div', { class: 'battery-row', hidden: true }, h('label', { class: 'field grow' }, h('span', null, 'New watch name'), nameInput), createBtn);
+    const showWhere = () => {
+      const w = watches.find((x) => x.id === rec.watchId);
+      title.textContent = w ? `Saved to ${w.name}` : 'Saved to the log';
+      where.replaceChildren(w ? h('a', { href: `#/watches/${w.id}` }, 'View this watch’s history →') : 'Not linked to a watch yet: pick one below, or assign it later in the Log. ', h('a', { href: '#/log' }, ' Open the Log →'));
+    };
+    createBtn.onclick = async () => {
+      const name = nameInput.value.trim();
+      if (!name) return void nameInput.focus();
+      const w = { ...blankWatch(), name, bph: r.bph };
+      await db.watches.add(w);
+      await loadWatches();
+      watchId = w.id;
+      savePrefs({ lastWatch: w.id });
+      update({ watchId: w.id });
+      newRow.hidden = true;
+      renderSaved(rec, r);
+    };
+    const watchOpts: Array<[string, string]> = [['', 'No watch (log only)'], ...watches.filter(isTimegraphable).map((w): [string, string] => [w.id, w.name]), ['__new', '+ New watch…']];
+    const notes = h('input', { type: 'text', value: rec.notes, placeholder: 'Optional, e.g. after a day on the wrist', onchange: (e: Event) => update({ notes: (e.target as HTMLInputElement).value.trim() }) });
+    showWhere();
     savePanel.replaceChildren(
-      h('header', { class: 'panel-head' }, h('h2', null, 'Save this reading')),
+      h('header', { class: 'panel-head' }, title, h('span', { class: 'muted small' }, 'changes save as you make them')),
       h(
         'div',
         { class: 'summary' },
@@ -800,6 +818,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
         fullAmp && h('div', null, h('strong', null, String(Math.round(fullAmp.amplitude))), '° amplitude'),
         h('div', null, h('strong', null, fmtDuration(r.duration)), ` · ${r.ticks} ticks`),
       ),
+      where,
       h(
         'div',
         { class: 'form-grid' },
@@ -807,17 +826,46 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
           'label',
           { class: 'field' },
           h('span', null, 'Watch'),
-          select(watchOpts, targetId, (v) => {
-            targetId = v;
-            nameField.hidden = v !== '__new';
+          select(watchOpts, rec.watchId, (v) => {
+            newRow.hidden = v !== '__new';
+            if (v === '__new') return void nameInput.focus();
+            update({ watchId: v });
+            if (v) {
+              watchId = v;
+              savePrefs({ lastWatch: v });
+            }
+            showWhere();
           }),
         ),
-        nameField,
-        h('label', { class: 'field' }, h('span', null, 'Position'), select(Object.entries(POSITIONS) as Array<[Position, string]>, position, (v) => (position = v as Position))),
-        h('label', { class: 'field' }, h('span', null, 'Wind'), select(Object.entries(WIND_STATES) as Array<[WindState, string]>, wind, (v) => (wind = v as WindState))),
+        h(
+          'label',
+          { class: 'field' },
+          h('span', null, 'Position'),
+          select(Object.entries(POSITIONS) as Array<[Position, string]>, rec.position, (v) => {
+            update({ position: v as Position });
+            savePrefs({ lastPosition: v as Position });
+          }),
+        ),
+        h('label', { class: 'field' }, h('span', null, 'Wind'), select(Object.entries(WIND_STATES) as Array<[WindState, string]>, rec.wind, (v) => update({ wind: v as WindState }))),
         h('label', { class: 'field wide' }, h('span', null, 'Notes'), notes),
       ),
-      h('div', { class: 'actions' }, saveBtn, h('button', { class: 'btn', onclick: () => (savePanel.hidden = true) }, 'Discard')),
+      newRow,
+      h(
+        'div',
+        { class: 'actions' },
+        h(
+          'button',
+          {
+            class: 'btn danger small',
+            onclick: async () => {
+              if (!confirm('Delete this reading?')) return;
+              await db.measurements.delete(rec.id);
+              savePanel.replaceChildren(h('header', { class: 'panel-head' }, h('h2', null, 'Deleted')), h('p', { class: 'muted' }, 'The reading was removed.'));
+            },
+          },
+          'Delete this reading',
+        ),
+      ),
     );
   }
 

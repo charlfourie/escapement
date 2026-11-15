@@ -1,5 +1,6 @@
 import { DEFAULT_SIM, type SimParams } from './audio/synth';
 import { DEFAULT_DETECTOR } from './audio/detector';
+import type { Position } from './db';
 
 export interface Prefs {
   source: 'mic' | 'sim';
@@ -12,6 +13,8 @@ export interface Prefs {
   traceSpan: number;
   sim: SimParams;
   lastWatch: string;
+  /** Position the last single reading was taken in, the default for the next. */
+  lastPosition: Position;
   listen: boolean;
 }
 
@@ -25,6 +28,7 @@ const DEFAULTS: Prefs = {
   traceSpan: 10,
   sim: DEFAULT_SIM,
   lastWatch: '',
+  lastPosition: 'DU',
   listen: false,
 };
 

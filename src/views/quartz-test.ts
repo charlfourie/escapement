@@ -334,10 +334,42 @@ export function quartzTestView(root: HTMLElement, watchId: string | null): () =>
     }
     const { correction, src } = clockState();
     const q = quartzRate(result, correction);
-    const notes = h('input', { type: 'text', placeholder: 'Optional, e.g. dial up, after a week on the wrist' });
     const r = result;
+    // Every valid test is saved straight away; the panel then edits it.
+    const rec: QuartzTest | null = watch
+      ? {
+          id: newId(),
+          watchId: watch.id,
+          at: Date.now(),
+          durationSec: runSec,
+          ticks: r.ticks,
+          stepSec: r.stepSec,
+          ppm: q.ppm,
+          perMonth: q.perMonth,
+          sigmaMonth: q.sigmaMonth,
+          rawPpm: r.rawPpm,
+          jitter: r.jitter,
+          clock: { source: src, ppm: correction?.ppm ?? null, sigma: correction?.sigma ?? null },
+          notes: source === 'qsim' ? 'Simulated watch' : '',
+          updatedAt: Date.now(),
+        }
+      : null;
+    if (rec) {
+      void db.qtests.add(rec);
+      toast(`Saved to ${watch!.name}`);
+    }
+    const notes = h('input', {
+      type: 'text',
+      value: rec?.notes ?? '',
+      placeholder: 'Optional, e.g. dial up, after a week on the wrist',
+      onchange: (e: Event) => {
+        if (!rec) return;
+        rec.notes = (e.target as HTMLInputElement).value.trim();
+        void db.qtests.update(rec.id, { notes: rec.notes, updatedAt: Date.now() });
+      },
+    });
     resultPanel.replaceChildren(
-      h('header', { class: 'panel-head' }, h('h2', null, completed ? 'Test complete' : 'Stopped early')),
+      h('header', { class: 'panel-head' }, h('h2', null, `${completed ? 'Test complete' : 'Stopped early'}${watch ? `: saved to ${watch.name}` : ''}`)),
       h(
         'div',
         { class: 'q-summary' },
@@ -355,40 +387,25 @@ export function quartzTestView(root: HTMLElement, watchId: string | null): () =>
         h('p', { class: 'small muted' }, `Typical quartz spec is ±${SPEC_MONTH} s a month; high-accuracy quartz is far tighter.`),
         r.stepSec === 2 && watch ? h('div', { class: 'message warn' }, lowStepMessage(watch)) : '',
       ),
-      h('label', { class: 'field' }, h('span', null, 'Notes'), notes),
+      h('label', { class: 'field' }, h('span', null, 'Notes (saved as you type)'), notes),
       h(
         'div',
         { class: 'actions' },
-        h(
-          'button',
-          {
-            class: 'btn primary',
-            onclick: async () => {
-              if (!watch) return;
-              const rec: QuartzTest = {
-                id: newId(),
-                watchId: watch.id,
-                at: Date.now(),
-                durationSec: runSec,
-                ticks: r.ticks,
-                stepSec: r.stepSec,
-                ppm: q.ppm,
-                perMonth: q.perMonth,
-                sigmaMonth: q.sigmaMonth,
-                rawPpm: r.rawPpm,
-                jitter: r.jitter,
-                clock: { source: src, ppm: correction?.ppm ?? null, sigma: correction?.sigma ?? null },
-                notes: notes.value.trim(),
-                updatedAt: Date.now(),
-              };
-              await db.qtests.add(rec);
-              toast('Quartz test saved');
-              location.hash = `#/watches/${watch.id}`;
+        watch && h('a', { class: 'btn primary', href: `#/watches/${watch.id}` }, 'View this watch'),
+        h('a', { class: 'btn', href: '#/log' }, 'Open the Log'),
+        rec &&
+          h(
+            'button',
+            {
+              class: 'btn danger small',
+              onclick: async () => {
+                if (!confirm('Delete this quartz test?')) return;
+                await db.qtests.delete(rec.id);
+                resultPanel.replaceChildren(h('header', { class: 'panel-head' }, h('h2', null, 'Deleted')), h('p', { class: 'muted' }, 'The test was removed.'));
+              },
             },
-          },
-          'Save to watch',
-        ),
-        h('button', { class: 'btn', onclick: () => (resultPanel.hidden = true) }, 'Discard'),
+            'Delete this test',
+          ),
       ),
     );
   }

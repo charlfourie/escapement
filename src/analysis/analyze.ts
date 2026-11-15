@@ -244,3 +244,12 @@ export function amplitudeFrom(lifts: number[], bph: number, liftAngle: number): 
   const q = (p: number) => amps[Math.min(amps.length - 1, Math.floor(p * amps.length))];
   return { amplitude: q(0.5), spread: q(0.75) - q(0.25), samples: amps.length };
 }
+
+/** A reading saves on its own when it's at least this long… */
+export const MIN_SAVE_SEC = 10;
+/** …with at least this share of clean beats. */
+export const MIN_SAVE_QUALITY = 0.6;
+
+export function isValidReading(a: Pick<Analysis, 'duration' | 'quality'>): boolean {
+  return a.duration >= MIN_SAVE_SEC && a.quality >= MIN_SAVE_QUALITY;
+}

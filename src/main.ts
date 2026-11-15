@@ -7,6 +7,7 @@ import { watchDetailView } from './views/watch-detail';
 import { dataView } from './views/data';
 import { movementDetailView, movementsView } from './views/movements';
 import { quartzTestView } from './views/quartz-test';
+import { logView } from './views/log';
 import { initSync } from './sync/sync';
 import { syncChip } from './sync/ui';
 
@@ -26,6 +27,7 @@ const routes: Route[] = [
   [/^\/watches$/, (r) => watchesView(r), 'watches'],
   [/^\/movements\/(.+)$/, (r, m) => movementDetailView(r, m[1]), 'movements'],
   [/^\/movements$/, (r) => movementsView(r), 'movements'],
+  [/^\/log$/, (r) => logView(r), 'log'],
   [/^\/data$/, (r) => dataView(r), 'data'],
 ];
 
@@ -43,6 +45,7 @@ const navLinks = [
   ['measure', '#/measure', 'Measure'],
   ['watches', '#/watches', 'Watches'],
   ['movements', '#/movements', 'Movements'],
+  ['log', '#/log', 'Log'],
   ['data', '#/data', 'Data'],
 ] as const;
 
