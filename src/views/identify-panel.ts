@@ -1,4 +1,4 @@
-import { AI_MODELS, AiError, identifyWatch, loadAi, saveAi, type Identification } from '../ai/identify';
+import { AiError, buildChatPrompt, GEMINI_MODELS, identifyWithGemini, loadAi, parseAnswer, saveAi, type AiProvider, type Identification } from '../ai/identify';
 import { MOVEMENT_TYPES, type MovementSpecs, type Watch } from '../db';
 import { h, photoUrl, resizeImage } from '../util/dom';
 import { fmtBph, ranfftUrl } from '../util/format';
@@ -27,70 +27,55 @@ function suggested(id: Identification, f: Field): string | number | null {
 const show = (f: Field, v: string | number | null) =>
   v === null || v === '' ? '—' : f === 'bph' ? `${fmtBph(Number(v))} bph` : f === 'liftAngle' ? `${v}°` : f === 'movementType' ? (MOVEMENT_TYPES[v as keyof typeof MOVEMENT_TYPES] ?? String(v)) : String(v);
 
-/** Settings block for the API key and model; used here and on the Data page. */
+/** Settings for identification: the default route and the optional Gemini key. Used here and on the Data page. */
 export function aiSettingsBlock(onChange?: () => void): HTMLElement {
   const s = loadAi();
-  const key = h('input', { type: 'password', autocomplete: 'off', spellcheck: 'false', placeholder: 'sk-ant-…', value: s.apiKey });
-  const status = h('span', { class: 'muted small' }, s.apiKey ? 'Key saved in this browser.' : '');
+  const key = h('input', { type: 'password', autocomplete: 'off', spellcheck: 'false', placeholder: 'AIza…', value: s.geminiKey });
+  const status = h('span', { class: 'muted small' }, s.geminiKey ? 'Key saved in this browser.' : '');
+  const saveKey = (v: string) => {
+    saveAi({ geminiKey: v });
+    status.textContent = v ? 'Key saved in this browser.' : 'Key removed.';
+    onChange?.();
+  };
   return h(
     'div',
     { class: 'ai-settings' },
     h(
       'div',
       { class: 'form-grid' },
-      h('label', { class: 'field' }, h('span', null, 'Anthropic API key'), key),
+      h('label', { class: 'field' }, h('span', null, 'Gemini API key (free)'), key),
       h(
         'label',
         { class: 'field' },
-        h('span', null, 'Model'),
+        h('span', null, 'Gemini model'),
         h(
           'select',
-          { onchange: (e: Event) => saveAi({ model: (e.target as HTMLSelectElement).value }) },
-          AI_MODELS.map(([v, l]) => h('option', { value: v, selected: v === s.model }, l)),
+          { onchange: (e: Event) => saveAi({ geminiModel: (e.target as HTMLSelectElement).value }) },
+          GEMINI_MODELS.map(([v, l]) => h('option', { value: v, selected: v === s.geminiModel }, l)),
         ),
       ),
     ),
     h(
       'div',
       { class: 'actions' },
-      h(
-        'button',
-        {
-          type: 'button',
-          class: 'btn small',
-          onclick: () => {
-            saveAi({ apiKey: key.value.trim() });
-            status.textContent = key.value.trim() ? 'Key saved in this browser.' : 'Key removed.';
-            onChange?.();
-          },
-        },
-        'Save key',
-      ),
-      h(
-        'button',
-        {
-          type: 'button',
-          class: 'btn small',
-          onclick: () => {
-            key.value = '';
-            saveAi({ apiKey: '' });
-            status.textContent = 'Key removed.';
-            onChange?.();
-          },
-        },
-        'Remove',
-      ),
+      h('button', { type: 'button', class: 'btn small', onclick: () => saveKey(key.value.trim()) }, 'Save key'),
+      h('button', { type: 'button', class: 'btn small', onclick: () => ((key.value = ''), saveKey('')) }, 'Remove'),
       status,
     ),
     h(
       'p',
       { class: 'muted small' },
-      'Get a key at ',
-      h('a', { href: 'https://console.anthropic.com/settings/keys', target: '_blank', rel: 'noopener' }, 'console.anthropic.com'),
-      '. It’s stored only in this browser and sent only to Anthropic. Each identification is billed to your Anthropic account, usually a few cents. Photos you identify are sent to Anthropic for that request.',
+      'Create a free key at ',
+      h('a', { href: 'https://aistudio.google.com/apikey', target: '_blank', rel: 'noopener' }, 'aistudio.google.com/apikey'),
+      ' without setting up billing, so it never costs anything. It’s separate from a Gemini subscription. The free tier allows a limited number of requests a day, can’t search the web, and Google may use what you send to improve its products. The key is stored only in this browser and sent only to Google.',
     ),
   );
 }
+
+const CHAT_APPS: Array<[string, string]> = [
+  ['Open Claude', 'https://claude.ai/new'],
+  ['Open Gemini', 'https://gemini.google.com/app'],
+];
 
 /**
  * "Identify with AI" panel for the watch form. Calls `apply` with the fields
@@ -103,13 +88,14 @@ export function identifyPanel(
   const photos: Blob[] = [];
   let busy = false;
   let controller: AbortController | null = null;
+  let provider: AiProvider = loadAi().provider;
 
   const thumbs = h('div', { class: 'id-thumbs' });
   const hint = h('textarea', { rows: 2, placeholder: 'Anything you know, e.g. “my grandfather’s, 1970s, dial says Bell-Matic, Japan”' });
   const statusEl = h('p', { class: 'id-status muted small', hidden: true });
   const result = h('div', { class: 'id-result', hidden: true });
   const errorEl = h('div', { class: 'message error', hidden: true });
-  const keyHost = h('div');
+  const routeHost = h('div', { class: 'id-route' });
 
   const addFiles = async (files: FileList | null) => {
     if (!files) return;
@@ -157,23 +143,138 @@ export function identifyPanel(
     camera.disabled = gallery.disabled = full;
   }
 
-  const goBtn = h('button', { type: 'button', class: 'btn primary', onclick: () => void run() }, 'Identify');
+  const input = () => {
+    const w = getWatch();
+    return { images: photos, hint: hint.value, known: { name: w.name, brand: w.brand, reference: w.reference, caliber: w.caliber } };
+  };
+  const showError = (err: unknown) => {
+    errorEl.hidden = false;
+    errorEl.textContent = err instanceof AiError ? err.message : `Something went wrong: ${(err as Error)?.message ?? err}`;
+  };
 
-  function renderKey() {
-    keyHost.replaceChildren(loadAi().apiKey ? '' : h('div', { class: 'id-key' }, h('p', { class: 'small' }, 'To identify watches, add your own Anthropic API key once:'), aiSettingsBlock(renderKey)));
+  // Route switch.
+  const routeTabs = h(
+    'div',
+    { class: 'segmented id-tabs', role: 'tablist' },
+    ...([
+      ['chat', 'In your chat app'],
+      ['gemini', 'Gemini key (one tap)'],
+    ] as Array<[AiProvider, string]>).map(([v, label]) =>
+      h(
+        'button',
+        {
+          type: 'button',
+          role: 'tab',
+          class: v === provider ? 'seg active' : 'seg',
+          'aria-selected': String(v === provider),
+          onclick: () => {
+            provider = v;
+            saveAi({ provider: v });
+            routeTabs.querySelectorAll('button').forEach((b, i) => {
+              const on = (i === 0 ? 'chat' : 'gemini') === v;
+              b.classList.toggle('active', on);
+              b.setAttribute('aria-selected', String(on));
+            });
+            errorEl.hidden = true;
+            renderRoute();
+          },
+        },
+        label,
+      ),
+    ),
+  );
+
+  function chatRoute(): HTMLElement {
+    const copied = h('p', { class: 'small muted', hidden: true });
+    const fallback = h('textarea', { class: 'id-prompt', rows: 6, readonly: true, hidden: true });
+    const reply = h('textarea', { rows: 4, placeholder: 'Paste the whole reply here' });
+    const copyBtn = h(
+      'button',
+      {
+        type: 'button',
+        class: 'btn primary',
+        onclick: async () => {
+          errorEl.hidden = true;
+          const i = input();
+          if (!i.images.length && !i.hint.trim() && !Object.values(i.known).some((v) => v?.trim())) {
+            showError(new AiError('Add a photo or a few notes first, so the request says what to look for.'));
+            return;
+          }
+          const text = buildChatPrompt(i, photos.length);
+          fallback.value = text;
+          try {
+            await navigator.clipboard.writeText(text);
+            fallback.hidden = true;
+            copied.hidden = false;
+            copied.textContent = photos.length
+              ? `Copied. Paste it into a new chat, attach the same ${photos.length === 1 ? 'photo' : `${photos.length} photos`}, and send.`
+              : 'Copied. Paste it into a new chat, attach your photos (dial, caseback, movement), and send.';
+          } catch {
+            fallback.hidden = false;
+            fallback.select();
+            copied.hidden = false;
+            copied.textContent = 'Copy the request below, paste it into a new chat with your photos, and send.';
+          }
+        },
+      },
+      '1 · Copy request',
+    );
+    const readBtn = h(
+      'button',
+      {
+        type: 'button',
+        class: 'btn primary',
+        onclick: () => {
+          errorEl.hidden = true;
+          try {
+            renderResult(parseAnswer(reply.value));
+          } catch (err) {
+            showError(err);
+          }
+        },
+      },
+      'Read reply',
+    );
+    return h(
+      'div',
+      null,
+      h('p', { class: 'muted small' }, 'Free with the Claude or Gemini app you already use, and the chat can search the web to confirm details. Nothing here needs a key.'),
+      h('div', { class: 'actions' }, copyBtn, ...CHAT_APPS.map(([label, url]) => h('a', { class: 'btn small', href: url, target: '_blank', rel: 'noopener' }, `${label} ↗`))),
+      copied,
+      fallback,
+      h('label', { class: 'field' }, h('span', null, '2 · Paste the reply'), reply),
+      h('div', { class: 'actions' }, readBtn),
+    );
   }
 
-  async function run() {
+  const goBtn = h('button', { type: 'button', class: 'btn primary', onclick: () => void runGemini() }, 'Identify');
+
+  function geminiRoute(): HTMLElement {
+    const s = loadAi();
+    return h(
+      'div',
+      null,
+      s.geminiKey
+        ? h('p', { class: 'muted small' }, 'Uses your free Gemini key. The free tier can’t search the web, so double-check the calibre on Ranfft DB.')
+        : h('div', { class: 'id-key' }, h('p', { class: 'small' }, 'Add your free Gemini API key once:'), aiSettingsBlock(renderRoute)),
+      h('div', { class: 'actions' }, goBtn, statusEl),
+    );
+  }
+
+  function renderRoute() {
+    routeHost.replaceChildren(provider === 'chat' ? chatRoute() : geminiRoute());
+  }
+
+  async function runGemini() {
     if (busy) {
       controller?.abort();
       return;
     }
-    const settings = loadAi();
     errorEl.hidden = true;
-    if (!settings.apiKey) {
-      renderKey();
-      errorEl.hidden = false;
-      errorEl.textContent = 'Add your Anthropic API key first.';
+    const settings = loadAi();
+    if (!settings.geminiKey) {
+      renderRoute();
+      showError(new AiError('Add your free Gemini API key first.'));
       return;
     }
     busy = true;
@@ -181,20 +282,12 @@ export function identifyPanel(
     goBtn.textContent = 'Cancel';
     goBtn.classList.remove('primary');
     statusEl.hidden = false;
+    statusEl.textContent = 'Looking closely at the photos…';
     result.hidden = true;
-    const w = getWatch();
     try {
-      const id = await identifyWatch(
-        { images: photos, hint: hint.value, known: { name: w.name, brand: w.brand, reference: w.reference, caliber: w.caliber } },
-        settings,
-        { signal: controller.signal, onStatus: (s) => (statusEl.textContent = s) },
-      );
-      renderResult(id);
+      renderResult(await identifyWithGemini(input(), settings, { signal: controller.signal }));
     } catch (err) {
-      if ((err as Error)?.name !== 'AbortError') {
-        errorEl.hidden = false;
-        errorEl.textContent = err instanceof AiError ? err.message : `Something went wrong: ${(err as Error)?.message ?? err}`;
-      }
+      if ((err as Error)?.name !== 'AbortError') showError(err);
     } finally {
       busy = false;
       controller = null;
@@ -217,6 +310,7 @@ export function identifyPanel(
     result.hidden = false;
     result.replaceChildren(
       h('div', { class: 'id-head' }, h('span', { class: `conf conf-${id.confidence}` }, `${id.confidence} confidence`), id.years && h('span', { class: 'muted small' }, id.years)),
+      id.dated ? h('p', { class: 'small' }, h('strong', null, 'Dated: '), id.dated) : '',
       h('p', { class: 'id-summary' }, id.summary),
       (id.caliber ?? '') && h('p', { class: 'small' }, h('a', { href: ranfftUrl(id.brand ?? '', id.caliber ?? ''), target: '_blank', rel: 'noopener' }, `Check caliber ${id.caliber} on Ranfft DB ↗`)),
       fields.length
@@ -277,6 +371,7 @@ export function identifyPanel(
                   ? [
                       `Identified with AI (${id.confidence} confidence): ${id.summary}`,
                       id.years ? `Production: ${id.years}` : '',
+                      id.dated ? `Dated: ${id.dated}` : '',
                       id.cautions.length ? `Worth knowing: ${id.cautions.join(' ')}` : '',
                       id.sources.length ? `Sources:\n${id.sources.map((s) => `- ${s.url}`).join('\n')}` : '',
                     ]
@@ -295,7 +390,7 @@ export function identifyPanel(
     );
   }
 
-  renderKey();
+  renderRoute();
   return h(
     'details',
     { class: 'panel identify' },
@@ -303,12 +398,12 @@ export function identifyPanel(
     h(
       'div',
       { class: 'id-body' },
-      h('p', { class: 'muted small' }, 'Up to four photos. The dial, the caseback (inside and out), the movement and any numbers between the lugs help most. Claude reads the markings and checks them against sources online.'),
+      h('p', { class: 'muted small' }, 'Up to four photos. The caseback (with its serial number) and the movement matter most: that’s where the calibre and the production date are stamped. Add the dial too.'),
       h('div', { class: 'actions' }, cameraBtn, galleryBtn),
       thumbs,
       h('label', { class: 'field' }, h('span', null, 'What you know'), hint),
-      keyHost,
-      h('div', { class: 'actions' }, goBtn, statusEl),
+      routeTabs,
+      routeHost,
       errorEl,
       result,
     ),

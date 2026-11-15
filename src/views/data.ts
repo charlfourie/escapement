@@ -140,7 +140,7 @@ export function dataView(root: HTMLElement): void {
         'section',
         { class: 'panel' },
         h('h2', null, 'AI identification'),
-        h('p', null, 'When you add or edit a watch, “Identify with AI” can work out the brand, reference and caliber from photos. It uses your own Anthropic API key.'),
+        h('p', null, 'When you add or edit a watch, “Identify with AI” can work out the brand, reference and caliber from photos. It’s free: by default you copy a request into the Claude or Gemini app you already use and paste the reply back. For one-tap identification, add a free Gemini API key here.'),
         aiSettingsBlock(),
       ),
       h(

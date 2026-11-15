@@ -1,36 +1,53 @@
 /**
- * Watch identification with Claude: vision on the user's photos plus web
- * search to confirm references, calibres and production years.
+ * Watch identification, two free ways:
  *
- * Runs straight from the browser with the user's own API key (bring your own
- * key), so the open-source app needs no server and nobody else pays for it.
+ * - **Chat (default):** the app writes a request; the user pastes it, with
+ *   their photos, into the Claude or Gemini app they already use, then pastes
+ *   the reply back. No API, no key, nothing billed, and the chat app can
+ *   search the web.
+ * - **Gemini API:** one tap, using the user's own free Gemini API key (from
+ *   Google AI Studio, no billing). The free tier has no web search, so the
+ *   model works from what it knows.
+ *
+ * Both ask for the same JSON answer and share one parser.
  */
 
 const KEY = 'escapement:ai';
-const API_URL = 'https://api.anthropic.com/v1/messages';
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 
-export const AI_MODELS: Array<[string, string]> = [
-  ['claude-opus-5-5', 'Claude Opus 5.5 (most thorough, best for vintage)'],
-  ['claude-sonnet-5-5', 'Claude Sonnet 5.5 (faster, cheaper)'],
+export type AiProvider = 'chat' | 'gemini';
+
+/** Free-tier Gemini models that read images (Google's pricing page, Nov 2026). */
+export const GEMINI_MODELS: Array<[string, string]> = [
+  ['gemini-3.8-flash', 'Gemini 3.8 Flash (best free model)'],
+  ['gemini-3.6-flash', 'Gemini 3.6 Flash'],
+  ['gemini-3.5-flash-lite', 'Gemini 3.5 Flash-Lite (fastest)'],
 ];
 
 export interface AiSettings {
-  apiKey: string;
-  model: string;
+  provider: AiProvider;
+  geminiKey: string;
+  geminiModel: string;
 }
 
 export function loadAi(): AiSettings {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? '{}');
-    return { apiKey: typeof raw.apiKey === 'string' ? raw.apiKey : '', model: typeof raw.model === 'string' ? raw.model : AI_MODELS[0][0] };
+    return {
+      provider: raw.provider === 'gemini' ? 'gemini' : 'chat',
+      geminiKey: typeof raw.geminiKey === 'string' ? raw.geminiKey : '',
+      geminiModel: typeof raw.geminiModel === 'string' && raw.geminiModel ? raw.geminiModel : GEMINI_MODELS[0][0],
+    };
   } catch {
-    return { apiKey: '', model: AI_MODELS[0][0] };
+    return { provider: 'chat', geminiKey: '', geminiModel: GEMINI_MODELS[0][0] };
   }
 }
 
 export function saveAi(patch: Partial<AiSettings>): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ ...loadAi(), ...patch }));
+    const { provider, geminiKey, geminiModel } = { ...loadAi(), ...patch };
+    // Rewriting the whole entry also drops the old Anthropic key, if any.
+    localStorage.setItem(KEY, JSON.stringify({ provider, geminiKey, geminiModel }));
   } catch {
     /* storage unavailable */
   }
@@ -51,70 +68,143 @@ export interface Identification {
   /** Movement size as text, e.g. "25.6 mm" or "11½'''". */
   size: string | null;
   years: string | null;
+  /** Production date decoded from a serial number, with how it was decoded. */
+  dated: string | null;
   cautions: string[];
   alternatives: Array<{ name: string; reason: string }>;
   nextSteps: string[];
   sources: Array<{ title: string; url: string }>;
 }
 
-const SYSTEM = `You are an expert horologist helping a collector identify a mechanical watch from their photos and notes. Many of their watches are vintage, with vague or missing details.
+const GUIDE = `You are an expert horologist helping a collector identify a watch from their photos and notes. Many of their watches are vintage, with vague or missing details.
 
 How to work:
-- Read every marking you can see: dial text and signatures, logos, case shape, hands, indices, lume, crown, caseback engravings, reference and serial numbers (often between the lugs or inside the caseback), movement engravings, calibre numbers and jewel counts.
-- Use web search to confirm the reference, calibre and production years against reliable sources: manufacturer archives, established reference databases and well-regarded collector resources. Search for exact markings you can read.
-- For movement specifications (beat rate, jewels, size, related calibres), Ranfft DB at ranfft.org is a strong source: look up the calibre there when you can.
+- Read every marking you can see: dial text and signatures, logos, case shape, hands, indices, lume, crown, caseback engravings, reference and serial numbers (often on the caseback or between the lugs), movement engravings, calibre numbers and jewel counts.
+- The calibre matters most: it sets the beat rate and lift angle the collector's timegrapher needs. Prefer a calibre read from the caseback or movement over one guessed from the dial. Give the actual calibre number (e.g. "8200A", "7S26"), never just "automatic" or "manual wind".
+- If a serial number is visible, decode the production date when the maker's scheme allows it (Seiko and Citizen serials encode the year and month, for example) and say how you decoded it. Mention that a one-digit year is ambiguous by decade and use the calibre's production years to choose.
+- For movement specifications (beat rate, jewels, size, related calibres), Ranfft DB at ranfft.org is a strong source.
 - Be honest about uncertainty. If the photos can't confirm something, leave that field null and lower the confidence. Never invent a reference or calibre number.
-- Note anything a collector should know, such as signs of a redial, replacement parts, a franken-watch, or a caseback that doesn't match the dial.
+- Note anything a collector should know, such as signs of a redial, replacement hands or crown, a franken-watch, or a caseback that doesn't match the dial.
 - Say whether the movement is automatic, hand-wound, quartz, solar quartz, kinetic or Spring Drive.
-- Give the movement's beat rate in vibrations per hour (bph), jewel count and diameter when the calibre is known, and its lift angle in degrees only if it is documented.
-- Suggest what extra photo or detail would settle any open question.
+- Give the beat rate in vibrations per hour (bph), jewel count and diameter when the calibre is known, and the lift angle in degrees only if it is documented.
+- Suggest what extra photo or detail would settle any open question.`;
 
-When you're done, call record_identification exactly once. Keep the summary to two to four plain sentences.`;
-
-const RECORD_TOOL = {
-  name: 'record_identification',
-  description: 'Record the final identification of the watch. Call exactly once, after any research.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
-      summary: { type: 'string', description: 'What the watch most likely is and the evidence for it.' },
-      name: { type: ['string', 'null'], description: 'A short display name, e.g. "Seiko Bell-Matic 4006-7000".' },
-      brand: { type: ['string', 'null'] },
-      model: { type: ['string', 'null'], description: 'Model or line name.' },
-      reference: { type: ['string', 'null'] },
-      caliber: { type: ['string', 'null'], description: 'Movement calibre, e.g. "4006A" or "ETA 2824-2".' },
-      movementType: { type: ['string', 'null'], enum: ['automatic', 'manual', 'quartz', 'solar', 'kinetic', 'spring-drive', null], description: 'Kind of movement: automatic, manual (hand-wound), quartz, solar (light-powered quartz), kinetic (automatic quartz) or spring-drive.' },
-      bph: { type: ['integer', 'null'], description: 'Beat rate in vibrations per hour, e.g. 21600. Null for quartz.' },
-      liftAngle: { type: ['number', 'null'], description: 'Lift angle in degrees, only if documented.' },
-      jewels: { type: ['integer', 'null'], description: 'Jewel count of the movement, if known.' },
-      size: { type: ['string', 'null'], description: 'Movement diameter, e.g. "25.6 mm" or "11½\'\'\'", if known.' },
-      years: { type: ['string', 'null'], description: 'Production years, e.g. "1968–1976".' },
-      cautions: { type: 'array', items: { type: 'string' } },
-      alternatives: {
-        type: 'array',
-        items: { type: 'object', properties: { name: { type: 'string' }, reason: { type: 'string' } }, required: ['name', 'reason'] },
-      },
-      nextSteps: { type: 'array', items: { type: 'string' }, description: 'Photos or details that would confirm the identification.' },
-      sources: {
-        type: 'array',
-        items: { type: 'object', properties: { title: { type: 'string' }, url: { type: 'string' } }, required: ['title', 'url'] },
-      },
-    },
-    required: ['confidence', 'summary'],
-  },
-};
+const FORMAT = `Answer with one JSON object and nothing else, using these keys (null when unknown):
+{
+  "confidence": "high" | "medium" | "low",
+  "summary": "2–4 plain sentences: what it most likely is and the evidence",
+  "name": "short display name, e.g. Seiko Bell-Matic 4006-7000",
+  "brand": string, "model": string, "reference": string,
+  "caliber": "movement calibre number",
+  "movementType": "automatic" | "manual" | "quartz" | "solar" | "kinetic" | "spring-drive",
+  "bph": integer beat rate in vibrations per hour (null for quartz),
+  "liftAngle": number in degrees, only if documented,
+  "jewels": integer, "size": "movement diameter, e.g. 25.6 mm",
+  "years": "production years, e.g. 1968–1976",
+  "dated": "production date decoded from the serial, with how, e.g. March 1976 (serial 63xxxxx: 6 = 1976, 3 = March)",
+  "cautions": [strings], "alternatives": [{"name": string, "reason": string}],
+  "nextSteps": [strings: photos or details that would confirm it],
+  "sources": [{"title": string, "url": string}]
+}`;
 
 export interface IdentifyInput {
-  /** JPEG images, already resized. */
+  /** JPEG images, already resized (for the API route). */
   images: Blob[];
   hint: string;
   known: { name?: string; brand?: string; reference?: string; caliber?: string };
 }
 
-type Block = { type: string; [k: string]: unknown };
-
 export class AiError extends Error {}
+
+function describeInput(input: IdentifyInput, photos: number): string {
+  const known = Object.entries(input.known)
+    .filter(([, v]) => v && v.trim())
+    .map(([k, v]) => `- ${k}: ${v}`)
+    .join('\n');
+  return [
+    photos ? `I've attached ${photos === 1 ? 'a photo' : `${photos} photos`} of my watch.` : 'I have no photos yet.',
+    input.hint.trim() ? `What I know: ${input.hint.trim()}` : '',
+    known ? `Already filled in (may be wrong):\n${known}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+/**
+ * The request to paste into a chat app. `photos` is how many the user will
+ * attach there.
+ */
+export function buildChatPrompt(input: IdentifyInput, photos: number): string {
+  return [
+    'Please identify my watch for my watch-collection app (Escapement).',
+    describeInput(input, photos),
+    GUIDE,
+    '- If you can search the web, confirm the reference, calibre and years against reliable sources (manufacturer archives, established reference databases, Ranfft DB, well-regarded collector sites) and list them as sources.',
+    FORMAT.replace('Answer with one JSON object and nothing else', 'Finish your reply with one JSON object in a ```json code block (the app reads it)'),
+  ].join('\n\n');
+}
+
+const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+const num = (v: unknown) => {
+  const n = typeof v === 'string' ? Number(v.replace(/[^\d.]/g, '')) : v;
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : null;
+};
+const strList = (v: unknown) => (Array.isArray(v) ? v.map(str).filter((x): x is string => Boolean(x)) : []);
+const GENERIC_CALIBER = /^(automatic|manual|hand[- ]?(wound|wind)|manual[- ]wind|quartz|mechanical|unknown)$/i;
+
+export function normalize(input: Record<string, unknown>, grounded: Array<{ title: string; url: string }> = []): Identification {
+  const conf = input.confidence;
+  const sources = Array.isArray(input.sources)
+    ? (input.sources as Array<Record<string, unknown>>).map((s) => ({ title: str(s?.title) ?? str(s?.url) ?? '', url: str(s?.url) ?? '' })).filter((s) => /^https?:\/\//.test(s.url))
+    : [];
+  const caliber = str(input.caliber);
+  return {
+    confidence: conf === 'high' || conf === 'medium' ? conf : 'low',
+    summary: str(input.summary) ?? '',
+    name: str(input.name),
+    brand: str(input.brand),
+    model: str(input.model),
+    reference: str(input.reference),
+    // "Automatic" is a movement type, not a calibre.
+    caliber: caliber && !GENERIC_CALIBER.test(caliber) ? caliber : null,
+    movementType: (['automatic', 'manual', 'quartz', 'solar', 'kinetic', 'spring-drive'] as const).find((t) => t === input.movementType) ?? null,
+    bph: num(input.bph),
+    liftAngle: num(input.liftAngle),
+    jewels: num(input.jewels),
+    size: str(input.size),
+    years: str(input.years),
+    dated: str(input.dated),
+    cautions: strList(input.cautions),
+    alternatives: Array.isArray(input.alternatives)
+      ? (input.alternatives as Array<Record<string, unknown>>).map((a) => ({ name: str(a?.name) ?? '', reason: str(a?.reason) ?? '' })).filter((a) => a.name)
+      : [],
+    nextSteps: strList(input.nextSteps),
+    sources: [...sources, ...grounded.filter((g) => !sources.some((s) => s.url === g.url))].slice(0, 6),
+  };
+}
+
+/** Find the JSON object in a chat reply (fenced or bare) and read it. */
+export function parseAnswer(text: string): Identification {
+  const candidates: string[] = [];
+  const fence = /```(?:json)?\s*([\s\S]*?)```/gi;
+  for (let m; (m = fence.exec(text)); ) candidates.push(m[1]);
+  const first = text.indexOf('{');
+  const last = text.lastIndexOf('}');
+  if (first >= 0 && last > first) candidates.push(text.slice(first, last + 1));
+  // Prefer the last fenced block: replies sometimes quote the format first.
+  for (const c of candidates.reverse()) {
+    try {
+      const obj = JSON.parse(c.trim().replace(/[“”]/g, '"'));
+      if (obj && typeof obj === 'object' && !Array.isArray(obj) && ('summary' in obj || 'brand' in obj || 'caliber' in obj)) {
+        const id = normalize(obj as Record<string, unknown>);
+        if (id.summary || id.brand || id.caliber || id.reference) return id;
+      }
+    } catch {
+      /* try the next candidate */
+    }
+  }
+  throw new AiError('Couldn’t find the answer’s JSON block. Copy the whole reply, including the part in the code box, and paste it again.');
+}
 
 async function blobToBase64(b: Blob): Promise<string> {
   const bytes = new Uint8Array(await b.arrayBuffer());
@@ -123,132 +213,57 @@ async function blobToBase64(b: Blob): Promise<string> {
   return btoa(bin);
 }
 
-function describeError(status: number, body: unknown): string {
-  const msg = (body as { error?: { message?: string } })?.error?.message ?? '';
-  if (status === 401) return 'Anthropic didn’t accept that API key. Check it under Data → AI identification.';
-  if (status === 403) return `This API key isn’t allowed to do that. ${msg}`.trim();
-  if (status === 429) return 'Rate limit reached on your API key. Wait a minute and try again.';
-  if (status === 529 || status === 503) return 'Claude is busy right now. Try again in a moment.';
-  if (status === 400 && /credit|balance/i.test(msg)) return 'Your Anthropic account is out of credit. Top it up in the Anthropic Console.';
+function geminiError(status: number, body: unknown): string {
+  const e = (body as { error?: { message?: string; status?: string } })?.error;
+  const msg = e?.message ?? '';
+  if (status === 400 && /api key/i.test(msg)) return 'Google didn’t accept that Gemini API key. Check it under Data → AI identification.';
+  if (status === 403) return `This Gemini key isn’t allowed to do that. ${msg}`.trim();
+  if (status === 404) return 'That Gemini model isn’t available to your key. Pick another model under Data → AI identification.';
+  if (status === 429) return 'The free Gemini quota is used up for now (it resets daily). Try again later, or use the copy-and-paste route.';
+  if (status === 500 || status === 503) return 'Gemini is busy right now. Try again in a moment.';
   return msg ? `Identification failed: ${msg}` : `Identification failed (HTTP ${status}).`;
 }
 
-const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
-const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null);
-const strList = (v: unknown) => (Array.isArray(v) ? v.map(str).filter((x): x is string => Boolean(x)) : []);
-
-export function normalize(input: Record<string, unknown>, searched: Array<{ title: string; url: string }>): Identification {
-  const conf = input.confidence;
-  const sources = Array.isArray(input.sources)
-    ? (input.sources as Array<Record<string, unknown>>).map((s) => ({ title: str(s.title) ?? str(s.url) ?? '', url: str(s.url) ?? '' })).filter((s) => /^https?:\/\//.test(s.url))
-    : [];
-  return {
-    confidence: conf === 'high' || conf === 'medium' ? conf : 'low',
-    summary: str(input.summary) ?? '',
-    name: str(input.name),
-    brand: str(input.brand),
-    model: str(input.model),
-    reference: str(input.reference),
-    caliber: str(input.caliber),
-    movementType: (['automatic', 'manual', 'quartz', 'solar', 'kinetic', 'spring-drive'] as const).find((t) => t === input.movementType) ?? null,
-    bph: num(input.bph),
-    liftAngle: num(input.liftAngle),
-    jewels: num(input.jewels),
-    size: str(input.size),
-    years: str(input.years),
-    cautions: strList(input.cautions),
-    alternatives: Array.isArray(input.alternatives)
-      ? (input.alternatives as Array<Record<string, unknown>>).map((a) => ({ name: str(a.name) ?? '', reason: str(a.reason) ?? '' })).filter((a) => a.name)
-      : [],
-    nextSteps: strList(input.nextSteps),
-    sources: (sources.length ? sources : searched).slice(0, 6),
-  };
-}
-
-export async function identifyWatch(
+/** One-tap identification with the user's free Gemini API key. */
+export async function identifyWithGemini(
   input: IdentifyInput,
-  settings: AiSettings,
-  opts: { signal?: AbortSignal; onStatus?: (s: string) => void; fetchFn?: typeof fetch } = {},
+  settings: Pick<AiSettings, 'geminiKey' | 'geminiModel'>,
+  opts: { signal?: AbortSignal; fetchFn?: typeof fetch } = {},
 ): Promise<Identification> {
-  if (!settings.apiKey) throw new AiError('Add your Anthropic API key first.');
+  if (!settings.geminiKey) throw new AiError('Add your free Gemini API key first.');
   if (!input.images.length && !input.hint.trim()) throw new AiError('Add at least one photo or a few notes about the watch.');
   const fetchFn = opts.fetchFn ?? fetch.bind(globalThis);
-
-  const known = Object.entries(input.known)
-    .filter(([, v]) => v && v.trim())
-    .map(([k, v]) => `${k}: ${v}`)
-    .join('\n');
-  const text = [
-    input.images.length ? `Here ${input.images.length === 1 ? 'is a photo' : `are ${input.images.length} photos`} of my watch.` : 'I have no photos yet.',
-    input.hint.trim() ? `What I know: ${input.hint.trim()}` : '',
-    known ? `Already filled in (may be wrong):\n${known}` : '',
-    'Please identify it.',
-  ]
-    .filter(Boolean)
-    .join('\n\n');
-
   const images = await Promise.all(input.images.map(blobToBase64));
-  const messages: Array<{ role: 'user' | 'assistant'; content: Block[] | string }> = [
-    {
-      role: 'user',
-      content: [...images.map((data) => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } })), { type: 'text', text }],
-    },
-  ];
-  const searched: Array<{ title: string; url: string }> = [];
-  opts.onStatus?.('Looking closely at the photos…');
+  const text = [
+    describeInput(input, images.length),
+    'You can’t search the web here, so work from what you know. Lower the confidence where you are relying on memory, and say what to check on Ranfft DB or the maker’s archive.',
+    FORMAT,
+  ].join('\n\n');
 
-  for (let round = 0; round < 6; round++) {
-    let res: Response;
-    try {
-      res = await fetchFn(API_URL, {
-        method: 'POST',
-        signal: opts.signal,
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': settings.apiKey,
-          'anthropic-version': '2023-06-01',
-          // Bring-your-own-key app: the key is the user's and never leaves their browser except to Anthropic.
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: settings.model,
-          max_tokens: 4096,
-          system: SYSTEM,
-          tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 6 }, RECORD_TOOL],
-          messages,
-        }),
-      });
-    } catch (err) {
-      if ((err as Error)?.name === 'AbortError') throw err;
-      throw new AiError('Couldn’t reach Anthropic. Check your connection and try again.');
-    }
-    const body = await res.json().catch(() => null);
-    if (!res.ok) throw new AiError(describeError(res.status, body));
-
-    const content: Block[] = Array.isArray(body?.content) ? body.content : [];
-    for (const b of content) {
-      if (b.type === 'server_tool_use' && b.name === 'web_search') {
-        const q = (b.input as { query?: string })?.query;
-        if (q) opts.onStatus?.(`Searched: “${q}”`);
-      }
-      if (b.type === 'web_search_tool_result' && Array.isArray(b.content)) {
-        for (const r of b.content as Array<{ title?: string; url?: string }>) {
-          if (r.url && !searched.some((s) => s.url === r.url)) searched.push({ title: r.title ?? r.url, url: r.url });
-        }
-      }
-    }
-
-    const rec = content.find((b) => b.type === 'tool_use' && b.name === 'record_identification');
-    if (rec) return normalize((rec.input ?? {}) as Record<string, unknown>, searched);
-
-    messages.push({ role: 'assistant', content });
-    if (body?.stop_reason !== 'pause_turn') {
-      // Finished talking without recording: ask for the structured answer.
-      messages.push({ role: 'user', content: 'Please record your identification now with the record_identification tool.' });
-      opts.onStatus?.('Writing up the identification…');
-    } else {
-      opts.onStatus?.('Still researching…');
-    }
+  let res: Response;
+  try {
+    res = await fetchFn(`${GEMINI_URL}/${encodeURIComponent(settings.geminiModel)}:generateContent`, {
+      method: 'POST',
+      signal: opts.signal,
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': settings.geminiKey },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: GUIDE }] },
+        contents: [{ role: 'user', parts: [...images.map((data) => ({ inlineData: { mimeType: 'image/jpeg', data } })), { text }] }],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
+      }),
+    });
+  } catch (err) {
+    if ((err as Error)?.name === 'AbortError') throw err;
+    throw new AiError('Couldn’t reach Gemini. Check your connection and try again.');
   }
-  throw new AiError('Claude didn’t finish the identification. Try again, perhaps with clearer photos.');
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new AiError(geminiError(res.status, body));
+
+  const cand = body?.candidates?.[0];
+  const reply = ((cand?.content?.parts ?? []) as Array<{ text?: string }>).map((p) => p.text ?? '').join('');
+  if (!reply.trim()) {
+    const why = cand?.finishReason ?? body?.promptFeedback?.blockReason;
+    throw new AiError(`Gemini didn’t return an answer${why ? ` (${why})` : ''}. Try again, perhaps with clearer photos.`);
+  }
+  return parseAnswer(reply);
 }
