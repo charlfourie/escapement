@@ -369,8 +369,6 @@ canvas.wave { width: 100%; height: 150px; display: block; background: var(--bg);
 .welcome-faces { display: flex; gap: 10px; }
 .welcome-faces .watch-art { width: 74px; height: 74px; }
 .welcome-foot { margin: 36px 0 8px; }
-.welcome-aside { margin: 4px 0 0 268px; font-size: 0.92rem; font-style: italic; max-width: 40em; }
-@media (max-width: 760px) { .welcome-aside { margin-left: 0; } }
 @media (max-width: 760px) {
   .welcome-hero { grid-template-columns: 1fr; padding-top: 4px; }
   .welcome-hero-art-wrap { order: -1; }
@@ -524,3 +522,20 @@ canvas.wave { width: 100%; height: 150px; display: block; background: var(--bg);
 @media (prefers-reduced-motion: reduce) { .watch-art .wa-crown { transition: none; } }
 @media (max-width: 640px) { .face-clock { width: 100%; max-width: 320px; } .face-clock .thumb.large { width: 140px; } }
 .fd-note { margin: -4px 0 6px; }
+
+/* ---------- welcome: the over-engineered placeholder ---------- */
+.ott { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 36px; align-items: start; }
+.ott-show { position: sticky; top: 80px; text-align: center; }
+.ott-stage { aspect-ratio: 1; border: 1px solid var(--line); border-radius: var(--radius); background: radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--panel) 70%, var(--text) 6%), var(--bg) 75%); display: grid; place-items: center; }
+.ott-stage .watch-art { width: 86%; height: 86%; animation: ott-in 0.45s ease; }
+@keyframes ott-in { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .ott-stage .watch-art { animation: none; } }
+.ott-label { margin: 10px 0 0; min-height: 2.6em; }
+.ott-intro { font-size: 1.05rem; margin: 0 0 14px; color: color-mix(in srgb, var(--text) 82%, var(--muted)); }
+.ott-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+.ott-table th { text-align: left; font: 500 0.72rem var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; padding: 0 0 8px; border-bottom: 1px solid var(--line); }
+.ott-table th:last-child, .ott-table td:last-child { text-align: right; white-space: nowrap; padding-left: 16px; }
+.ott-table td { padding: 10px 0; border-bottom: 1px solid var(--line); line-height: 1.45; }
+.ott-no { color: var(--muted); font-style: italic; }
+.ott-yes { color: var(--accent); font-weight: 600; }
+@media (max-width: 760px) { .ott { grid-template-columns: 1fr; } .ott-show { position: static; max-width: 280px; margin: 0 auto; } }

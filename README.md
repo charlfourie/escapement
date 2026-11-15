@@ -20,6 +20,7 @@
 <p align="center">
   <a href="#-measure-a-watch">Measure</a> ·
   <a href="#-your-collection">Collection</a> ·
+  <a href="#-the-most-over-engineered-image-placeholder-ever">Placeholder</a> ·
   <a href="#-quartz-watches-too">Quartz</a> ·
   <a href="#-3000-movements">Movements</a> ·
   <a href="#-every-test-logged">Log</a> ·
@@ -30,7 +31,7 @@
 
 ---
 
-No app, no account, no hardware beyond a R199 clip-on pickup (or a quiet room and your laptop's mic). Your data stays in your browser, with optional sync across devices. Don't have a watch to hand? There's a **simulated watch** built in, so you can try everything right now.
+No app, no account, no hardware beyond a R199 clip-on pickup (or a quiet room and your laptop's mic). Your data stays in your browser, with optional sync across devices. Don't have a watch to hand? There's a **simulated watch** built in, so you can try everything right now. And every watch without a photo gets [the most over-engineered image placeholder ever](#-the-most-over-engineered-image-placeholder-ever).
 
 ## 🎧 Measure a watch
 
@@ -47,29 +48,44 @@ Press **Start** and the classic paper trace draws itself, one dot per tick. Flat
 
 <p align="center"><img src="docs/media/collection.png" alt="A grid of five watches, each with a drawn face showing the real time: a blue sunburst Citizen, a green Promaster, a rose-gold rectangular dress watch, a gold Rotary with small seconds and a black Seiko diver" width="100%"></p>
 
-Add your watches with photos, calibre and service dates, and each gets its rate-over-time chart (with the COSC band), positional delta and the stored trace of every reading.
-
-No photo? You get what may be **the most over-engineered image placeholder ever**: a face drawn for the watch's movement type, showing the real time and today's date, its seconds hand moving the way that movement does. Quartz steps once a second, a mechanical watch beats at its own beat rate, Spring Drive glides.
-
-And since we'd gone that far, there's a **face designer** too:
-
-<p align="center"><img src="docs/media/designer.gif" alt="The face designer: the preview changes case shape (round, cushion, rectangular, tonneau, octagonal), metal, dial colour, markers, finish, seconds and strap" width="80%"></p>
-
-Case shape and metal, dial colour and finish, markers, hands, small seconds, diver or coin-edge bezel, strap or bracelet, date window, power reserve. Anything you leave alone keeps following the watch.
-
-Still not over-engineered enough, so on a watch's page the face behaves like the watch:
-
-<p align="center"><img src="docs/media/watch-time.gif" alt="The Rotary's face switches to Watch time and jumps a minute fast, then the crown is pulled and the minute hand dragged round while the seconds hand keeps running" width="70%"></p>
-
-- **Watch time** shows what your watch actually says right now, not the real time. It's worked out from your time checks since you last set it and its measured drift, so a Rotary at +7 s/day set 9 days ago reads a minute fast.
-- **Pull the crown** and drag the hands to set them. The seconds hand stops only if the movement **hacks**: a Seiko 7S26 doesn't, so its seconds keep running while you set it, just like the real one. Push the crown in and the hands carry on from where you left them, a little behind if the seconds were stopped.
-- **The dial ages** with its movement. A calibre from the 1970s gets some patina; one from the 1950s or earlier is well worn, with yellowed (or sun-faded "tropical") dials, aged lume and a hazy, lightly scratched acrylic crystal. You can override it in the designer.
-
-<p align="center"><img src="docs/media/ages.png" alt="Two watch faces at three ages: like new, some patina and well worn. The cream dial yellows; the black dial fades to a tropical brown with aged lume" width="80%"></p>
+Add your watches with photos, calibre and service dates, and each gets its rate-over-time chart (with the COSC band), positional delta and the stored trace of every reading. No photo? See [below](#-the-most-over-engineered-image-placeholder-ever). Please do.
 
 <p align="center"><img src="docs/media/watch.png" alt="A watch's page: specs, five stat cards and the rate-over-time chart climbing into the COSC band after a regulation" width="100%"></p>
 
 **Identify with AI, free:** photograph the caseback, movement and dial, and Escapement suggests the brand, reference, calibre, beat rate, lift angle and production date, with sources. Copy the request into the Claude or Gemini app you already use, or use your own free Gemini key. Nothing is billed.
+
+## 🎩 The most over-engineered image placeholder ever
+
+<p align="center"><img src="docs/media/placeholders.gif" alt="A drawn watch face redesigning itself: a worn gold Rotary, a Seiko diver, a rose-gold rectangular dress watch, a green cushion Eco-Drive, an octagonal 28,800 bph watch and a gliding Spring Drive" width="320"></p>
+
+A watch without a photo needs a picture. It needed a small grey square. It got this:
+
+| What the placeholder does | Strictly necessary? |
+| --- | --- |
+| Shows the real time, live | *No* |
+| Seconds hand beats at the watch's own rate: 6 beats a second at 21,600 bph | *No* |
+| Quartz steps once a second; Spring Drive glides | *Absolutely not* |
+| Shows the time your watch actually says, from your time checks | *No* |
+| A crown you can pull to set the hands, which hacks only if the real movement does | *Not remotely* |
+| The dial ages with its movement: patina, tropical dials, old lume, a scratched acrylic crystal | *No* |
+| 5 case shapes, 4 metals, any dial colour, 4 finishes, 5 marker styles, 3 bezels, 4 straps | *No* |
+| Stands in for a photo of the watch | **Technically, yes** |
+
+**It has a designer.** Of course it does. Case shape and metal, dial colour and finish, markers, hands, small seconds, diver or coin-edge bezel, strap or bracelet, date window, power reserve and how old it should look, with a live preview. Anything you leave alone keeps following the watch, and the drawn face can stand in for a photo you do have.
+
+<p align="center"><img src="docs/media/designer.gif" alt="The face designer: the preview changes case shape (round, cushion, rectangular, tonneau, octagonal), metal, dial colour, markers, finish, seconds and strap" width="80%"></p>
+
+**It knows what your watch says.** On a watch's page the face can show *Watch time*: not the real time, but what your actual watch reads right now, worked out from your time checks since you last set it and its measured drift. A Rotary at +7 s/day set 9 days ago reads a minute fast, so its drawing does too.
+
+**It has a crown, and the crown is accurate.** Pull it and drag the hands to set them. The seconds hand stops only if the movement **hacks**: a Seiko 7S26 doesn't, so its drawing doesn't either, and its seconds keep running while you set it. Push the crown in and the hands carry on from where you left them, a little behind if the seconds were stopped. Like a real watch.
+
+<p align="center"><img src="docs/media/watch-time.gif" alt="The Rotary's face switches to Watch time and jumps a minute fast, then the crown is pulled and the minute hand dragged round while the seconds hand keeps running" width="70%"></p>
+
+**It ages.** The dial ages with its movement's production year from the reference library. A 1970s calibre gets some patina; one from before 1970 is well worn, with a yellowed or sun-faded "tropical" dial, aged lume and a hazy, lightly scratched acrylic crystal.
+
+<p align="center"><img src="docs/media/ages.png" alt="Two watch faces at three ages: like new, some patina and well worn. The cream dial yellows; the black dial fades to a tropical brown with aged lume" width="80%"></p>
+
+None of this measures anything.
 
 ## 🔋 Quartz watches too
 

@@ -8,7 +8,7 @@ import { blankWatch, type Watch } from '../db';
 import { savePrefs } from '../prefs';
 import { liveFace, reducedMotion } from '../ui/ticker';
 import { h, svg } from '../util/dom';
-import { watchArt } from './watch-art';
+import { resolveFace, watchArt, type FaceDesign } from './watch-art';
 
 export const WELCOMED_KEY = 'escapement:welcomed';
 
@@ -119,6 +119,64 @@ const mini = {
   },
 };
 
+/** Placeholders, overdone: a face that keeps redesigning itself, and its spec sheet. */
+const SHOWCASE: Array<{ w: Partial<Watch>; d: Partial<FaceDesign>; label: string }> = [
+  { w: { brand: 'Rotary', movementType: 'manual', bph: 21600 }, d: { shape: 'round', metal: 'gold', dial: '#e9e4d8', markers: 'arabic', seconds: 'small', hands: '#111111', secondsColour: '#111111', strap: 'leather', strapColour: '#5a3a22', patina: 'heavy' }, label: 'Gold, small seconds, well worn' },
+  { w: { brand: 'Seiko', movementType: 'automatic', bph: 21600 }, d: { shape: 'round', metal: 'steel', dial: '#1a1b1c', markers: 'dots', bezel: 'dive', strap: 'rubber', secondsColour: '#ff5a4a', date: true, patina: 'light' }, label: 'Diver, tropical in the making' },
+  { w: { brand: 'Hamilton', movementType: 'manual', bph: 18000 }, d: { shape: 'tank', metal: 'rose', dial: '#e9e4d8', markers: 'roman', hands: '#1b2a4a', seconds: 'none', strap: 'leather', strapColour: '#203247', patina: 'none' }, label: 'Rectangular, rose gold, Roman' },
+  { w: { brand: 'Citizen', movementType: 'solar' }, d: { shape: 'cushion', metal: 'black', dial: '#14472f', texture: 'sunburst', bezel: 'coin', strap: 'nato', strapColour: '#2e3b2c', secondsColour: '#f5b84a', text: 'ECO-DRIVE', patina: 'none' }, label: 'Cushion, sunburst, steps like quartz' },
+  { w: { brand: 'Escapement', movementType: 'automatic', bph: 28800 }, d: { shape: 'octagon', metal: 'steel', dial: '#1d3a5f', texture: 'linen', markers: 'batons', strap: 'bracelet', powerReserve: true, secondsColour: '#7cf2a5', patina: 'none' }, label: 'Octagonal, linen, 8 beats a second' },
+  { w: { brand: 'Grand', movementType: 'spring-drive' }, d: { shape: 'tonneau', metal: 'steel', dial: '#b9bec2', texture: 'plain', markers: 'batons', strap: 'leather', strapColour: '#1b211e', text: 'SPRING DRIVE', powerReserve: true, patina: 'none' }, label: 'Tonneau, gliding seconds' },
+];
+
+const OVERKILL: Array<[string, string]> = [
+  ['Shows the real time, live', 'No'],
+  ['Seconds hand beats at the watch’s own rate: 6 beats a second at 21,600 bph', 'No'],
+  ['Quartz steps once a second; Spring Drive glides', 'Absolutely not'],
+  ['Shows the time your watch actually says, from your time checks', 'No'],
+  ['A crown you can pull to set the hands, which hacks only if the real movement does', 'Not remotely'],
+  ['The dial ages with its movement: patina, tropical dials, old lume, a scratched acrylic crystal', 'No'],
+  ['5 case shapes, 4 metals, any dial colour, 4 finishes, 5 marker styles, 3 bezels, 4 straps', 'No'],
+  ['Stands in for a photo of the watch', 'Technically, yes'],
+];
+
+function overkill(): HTMLElement {
+  const stage = h('div', { class: 'ott-stage' });
+  const label = h('p', { class: 'ott-label small muted' });
+  let i = 0;
+  const show = () => {
+    const s = SHOWCASE[i];
+    const w = demoWatch({ id: `ott-${i}`, ...s.w });
+    stage.replaceChildren(watchArt(w, { design: { ...resolveFace(w), ...s.d } }));
+    label.textContent = `${s.label}. Placeholder ${i + 1} of ${SHOWCASE.length}.`;
+  };
+  show();
+  if (!reducedMotion()) {
+    const timer = window.setInterval(() => {
+      if (!stage.isConnected) return window.clearInterval(timer);
+      i = (i + 1) % SHOWCASE.length;
+      show();
+    }, 2800);
+  }
+  return h(
+    'div',
+    { class: 'ott' },
+    h('div', { class: 'ott-show' }, stage, label),
+    h(
+      'div',
+      { class: 'ott-spec' },
+      h('p', { class: 'ott-intro' }, 'A watch without a photo needs a picture. Here is what went into that picture.'),
+      h(
+        'table',
+        { class: 'ott-table' },
+        h('thead', null, h('tr', null, h('th', null, 'What the placeholder does'), h('th', null, 'Strictly necessary?'))),
+        h('tbody', null, OVERKILL.map(([what, verdict]) => h('tr', null, h('td', null, what), h('td', { class: verdict.startsWith('Technically') ? 'ott-yes' : 'ott-no' }, verdict)))),
+      ),
+      h('p', { class: 'small muted' }, 'Design your own in any watch’s form, under Watch face. On a watch’s page, pull the crown.'),
+    ),
+  );
+}
+
 export function welcomeView(root: HTMLElement): void {
   try {
     localStorage.setItem(WELCOMED_KEY, '1');
@@ -188,13 +246,11 @@ export function welcomeView(root: HTMLElement): void {
         { class: 'welcome-features' },
         section('Mechanical watches', 'Rate in seconds a day, beat error and amplitude, live as it listens. The six-position test turns the watch through dial up, dial down and four crown positions for the full picture.', mini.trace()),
         section('Quartz watches', 'The seconds hand’s motor clicks once a second. Timed for ten minutes against internet time, that gives the rate in seconds a month, and a low battery shows up as 2-second steps.', mini.quartz()),
-        section('Your collection', 'Photos for each watch, its history, battery changes and time checks. Identify a vintage piece from photos of the caseback, free, with the AI chat you already use.', faces),
-        h(
-          'p',
-          { class: 'welcome-aside muted' },
-          'No photo yet? Each watch gets what may be the most over-engineered image placeholder ever: a face drawn for its movement, showing the real time, with the seconds hand ticking at that watch’s own beat rate.',
-        ),
+        section('Your collection', 'Photos for each watch, its history, battery changes and time checks, and a library of 3,000 movements. Identify a vintage piece from photos of the caseback, free, with the AI chat you already use.', faces),
       ),
+
+      h('h2', { class: 'welcome-h2' }, 'The most over-engineered image placeholder ever'),
+      overkill(),
 
       h(
         'p',
