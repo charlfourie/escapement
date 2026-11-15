@@ -124,19 +124,41 @@ const SEARCH_PPM = 600;
 function findBeat(times: number[], step: number): { period: number; phase: number; hits: number } | null {
   const span = times[times.length - 1] - times[0];
   if (span < step * 4) return null;
-  const binSec = 0.002;
-  const nBins = Math.round(step / binSec);
+  // Long runs: find the beat roughly on the last two minutes, then refine
+  // over the whole run in a narrow range. Searching the full range at full
+  // resolution costs time × clicks, which grew enough over a 10-minute run
+  // to freeze the page.
+  if (span > COARSE_SEC * 1.25) {
+    const cut = times[times.length - 1] - COARSE_SEC;
+    let i = times.length;
+    while (i > 0 && times[i - 1] >= cut) i--;
+    const recent = times.slice(i);
+    const rough = recent.length >= 6 ? foldSearch(recent, step, step - step * SEARCH_PPM * 1e-6, step + step * SEARCH_PPM * 1e-6) : null;
+    if (rough) {
+      const w = (4 * BIN_SEC * step) / COARSE_SEC;
+      return foldSearch(times, step, rough.period - w, rough.period + w);
+    }
+  }
+  return foldSearch(times, step, step - step * SEARCH_PPM * 1e-6, step + step * SEARCH_PPM * 1e-6);
+}
+
+const BIN_SEC = 0.002;
+const COARSE_SEC = 120;
+
+function foldSearch(times: number[], step: number, from: number, to: number): { period: number; phase: number; hits: number } | null {
+  const span = times[times.length - 1] - times[0];
+  const nBins = Math.round(step / BIN_SEC);
   // Period steps small enough that the phase drifts < 1 bin over the run.
-  const dP = (binSec * step) / Math.max(span, step);
-  const range = step * SEARCH_PPM * 1e-6;
+  const dP = (BIN_SEC * step) / Math.max(span, step);
   const counts = new Int32Array(nBins);
   let best: { period: number; phase: number; hits: number } | null = null;
   const t0 = times[0];
-  for (let P = step - range; P <= step + range; P += dP) {
+  for (let P = from; P <= to; P += dP) {
     counts.fill(0);
-    for (const t of times) {
-      const ph = ((t - t0) / P) % 1;
-      counts[Math.floor(ph * nBins) % nBins]++;
+    const inv = 1 / P;
+    for (let k = 0; k < times.length; k++) {
+      const x = (times[k] - t0) * inv;
+      counts[Math.floor((x - Math.floor(x)) * nBins) % nBins]++;
     }
     for (let i = 0; i < nBins; i++) {
       const c = counts[i] + Math.max(counts[(i + 1) % nBins], counts[(i + nBins - 1) % nBins]);
@@ -160,7 +182,9 @@ export function analyzeQuartz(times: number[], opts: { minTicks?: number; breaks
   const groups = new Map<number, number[]>();
   for (const t of times) {
     const g = segmentOf(t, breaks);
-    groups.set(g, [...(groups.get(g) ?? []), t]);
+    const arr = groups.get(g);
+    if (arr) arr.push(t);
+    else groups.set(g, [t]);
   }
   const largest = [...groups.values()].sort((p, q) => q.length - p.length)[0];
 
@@ -214,7 +238,8 @@ export function analyzeQuartz(times: number[], opts: { minTicks?: number; breaks
   if (!f) return null;
   for (let round = 0; round < 3; round++) {
     const res = f.resid;
-    const mad = median(res.map((e) => Math.abs(e - median(res))));
+    const mid = median(res);
+    const mad = median(res.map((e) => Math.abs(e - mid)));
     const lim = Math.max(0.0005, 5 * 1.4826 * mad);
     const keep = res.map((e) => Math.abs(e) <= lim);
     if (keep.every(Boolean)) break;

@@ -347,15 +347,23 @@ export function quartzTestView(root: HTMLElement, watchId: string | null): () =>
     void sampleClock();
     clockTimer = window.setInterval(() => void sampleClock(), CLOCK_EVERY_MS);
     dropTimer = window.setInterval(() => engine.pollDropouts(), 250);
-    timer = window.setInterval(analyse, 1000);
-    analyse();
+    // Re-analyse about once a second, but never spend more than ~15% of the
+    // time on it, so a long, noisy run can't make the page unresponsive.
+    const loop = () => {
+      if (state !== 'running') return;
+      const t0 = performance.now();
+      analyse();
+      const took = performance.now() - t0;
+      timer = window.setTimeout(loop, Math.max(1000, took * 6));
+    };
+    loop();
   }
 
   async function finish(completed: boolean) {
     if (state !== 'running' && state !== 'starting') return;
     analyse();
     state = 'done';
-    clearInterval(timer);
+    clearTimeout(timer);
     clearInterval(clockTimer);
     clearInterval(dropTimer);
     diag = diagnostics();
@@ -534,7 +542,7 @@ export function quartzTestView(root: HTMLElement, watchId: string | null): () =>
   })();
 
   return () => {
-    clearInterval(timer);
+    clearTimeout(timer);
     clearInterval(clockTimer);
     clearInterval(dropTimer);
     void wakeLock?.release().catch(() => {});

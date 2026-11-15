@@ -193,3 +193,17 @@ describe('dropout detector', () => {
     expect(d.dropouts[1].gap).toBeCloseTo(0.04, 1);
   });
 });
+
+describe('quartz analysis speed', () => {
+  it('handles a 20-minute run with heavy noise quickly (it runs every second in the page)', () => {
+    const real = clicks({ ppm: 3, seconds: 1200, jitterMs: 0.4, seed: 51 });
+    const { u } = rng(52);
+    const noise = Array.from({ length: 6000 }, () => u() * 1200);
+    const all = [...real, ...noise].sort((a, b) => a - b);
+    const t0 = performance.now();
+    const r = analyzeQuartz(all)!;
+    const ms = performance.now() - t0;
+    expect(Math.abs(r.rawPpm - 3)).toBeLessThan(4 * r.rawSigmaPpm + 0.05);
+    expect(ms).toBeLessThan(400);
+  });
+});
