@@ -1,5 +1,6 @@
 import workletUrl from './tick-processor.ts?worker&url';
 import type { DetectorSettings } from './detector';
+import { DropoutDetector } from './dropouts';
 import type { BankTick } from './tick-processor';
 import type { QuartzSimParams, SimParams } from './synth';
 
@@ -25,6 +26,16 @@ export class AudioEngine {
   private source: AudioNode | null = null;
   onUpdate: ((u: EngineUpdate) => void) | null = null;
   private clipWaiter: { resolve: (c: Clip) => void; reject: (e: Error) => void } | null = null;
+  /** Context time (currentTime clock) at which tick times start counting. */
+  private origin = 0;
+  private dropoutDetector = new DropoutDetector();
+  /**
+   * Moments the audio stalled: the sound card's timeline paused (or jumped)
+   * against the computer's clock. `at` is on the output clock (audioNow()).
+   */
+  get dropouts(): Array<{ at: number; gap: number }> {
+    return this.dropoutDetector.dropouts;
+  }
 
   /** The raw input signal, for analysers (mic source, or the simulator's output). */
   get input(): AudioNode | null {
@@ -54,14 +65,51 @@ export class AudioEngine {
     return ctx.currentTime;
   }
 
+  /**
+   * Check the sound card's clock against the computer's: a jump in the gap
+   * between them means the audio stalled. Call a few times a second.
+   */
+  pollDropouts(): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== 'running') return;
+    const ts = typeof ctx.getOutputTimestamp === 'function' ? ctx.getOutputTimestamp() : null;
+    const precise = !!ts && ts.contextTime !== undefined && ts.performanceTime !== undefined && ts.performanceTime > 0;
+    const audio = precise ? ts!.contextTime! : ctx.currentTime;
+    // getOutputTimestamp is good to a couple of ms; currentTime only to a buffer.
+    this.dropoutDetector.feed(audio, (precise ? ts!.performanceTime! : performance.now()) / 1000, precise ? 0.015 : 0.05);
+  }
+
+  /** Convert a time on the output clock (audioNow, dropouts) to tick time. */
+  toTickTime(audioTime: number): number {
+    const ctx = this.ctx;
+    const lag = ctx ? (ctx.baseLatency || 0) + ((ctx as AudioContext & { outputLatency?: number }).outputLatency || 0) : 0;
+    return audioTime + lag - this.origin;
+  }
+
+  /** Details for a diagnostics report. */
+  describe(): Record<string, unknown> {
+    const ctx = this.ctx;
+    return {
+      sampleRate: ctx?.sampleRate,
+      baseLatency: ctx?.baseLatency,
+      outputLatency: (ctx as (AudioContext & { outputLatency?: number }) | null)?.outputLatency,
+      outputTimestamp: !!ctx && typeof ctx.getOutputTimestamp === 'function',
+      origin: this.origin,
+      track: this.stream?.getAudioTracks()[0]?.getSettings(),
+    };
+  }
+
   get running(): boolean {
     return this.ctx !== null;
   }
 
-  async start(source: Source, opts: { auto: boolean; denoise?: boolean; detector: Partial<DetectorSettings> }): Promise<void> {
+  async start(source: Source, opts: { auto: boolean; denoise?: boolean; detector: Partial<DetectorSettings>; latency?: 'interactive' | 'playback' }): Promise<void> {
     await this.stop();
+    this.dropoutDetector = new DropoutDetector();
+    this.origin = 0;
     // Create and resume inside the click handler so browsers allow audio.
-    const ctx = new AudioContext({ latencyHint: 'interactive' });
+    // 'playback' uses bigger buffers: more delay, but fewer dropouts on a busy computer.
+    const ctx = new AudioContext({ latencyHint: opts.latency ?? 'interactive' });
     void ctx.resume();
     this.ctx = ctx;
     try {
@@ -86,6 +134,7 @@ export class AudioEngine {
       });
       node.port.onmessage = (e: MessageEvent) => {
         if (e.data?.type === 'update') this.onUpdate?.(e.data as EngineUpdate);
+        else if (e.data?.type === 'origin') this.origin = Number(e.data.time) || 0;
         else if (e.data?.type === 'clip' && this.clipWaiter) {
           this.clipWaiter.resolve({ sampleRate: e.data.sampleRate, samples: e.data.samples });
           this.clipWaiter = null;

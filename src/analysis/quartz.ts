@@ -18,6 +18,8 @@
  * already reflects.
  */
 
+import { lsq, segmentOf } from './lsq';
+
 const DAY = 86400;
 export const MONTH_DAYS = 30.44;
 
@@ -30,8 +32,10 @@ export interface QuartzResult {
   missed: number;
   /** Clicks rejected as off the beat (noise, knocks). */
   rejected: number;
-  /** Seconds from first to last click used. */
+  /** Seconds covered by the clicks used (summed over unbroken stretches). */
   span: number;
+  /** Unbroken stretches of audio the clicks came from (1 without dropouts). */
+  stretches: number;
   /** Watch rate against the sound card's clock, parts per million (+ = fast). */
   rawPpm: number;
   /** Uncertainty of rawPpm from the click timing (1 sigma). */
@@ -70,49 +74,36 @@ export function quartzRate(r: QuartzResult, clock: ClockCorrection | null): Quar
   return { ppm, perDay: ppmToDay(ppm), perMonth: ppmToMonth(ppm), sigmaMonth: ppmToMonth(sigma) };
 }
 
-interface Fit {
-  a: number;
-  b: number;
-  c: number;
-  resid: number[];
-  sigmaB: number;
-}
-
-/** Least squares t = a + b·n + c·s, with s = ±1 for alternate steps. */
-function fit(n: number[], t: number[]): Fit | null {
-  const m = n.length;
-  if (m < 4) return null;
-  // Normal equations for three unknowns.
-  let S = [0, 0, 0, 0, 0, 0, 0, 0, 0];
-  let r = [0, 0, 0];
-  const n0 = n[0];
-  for (let i = 0; i < m; i++) {
-    const x = [1, n[i] - n0, n[i] % 2 === 0 ? 1 : -1];
-    for (let p = 0; p < 3; p++) {
-      r[p] += x[p] * t[i];
-      for (let q = 0; q < 3; q++) S[p * 3 + q] += x[p] * x[q];
-    }
+/**
+ * Fit t = a_j + b·n + c_j·s over clicks in one or more unbroken stretches j
+ * (s = ±1 for alternate steps). Each stretch gets its own offset, because an
+ * audio dropout shifts every later click; the slope b is shared.
+ */
+function segFit(seg: number[], n: number[], t: number[]): { b: number; sigmaB: number; resid: number[]; polarity: number } | null {
+  const ids = [...new Set(seg)];
+  const col = new Map(ids.map((id, i) => [id, i]));
+  const k = ids.length;
+  const first = new Map<number, { n: number; t: number }>();
+  seg.forEach((sg, i) => {
+    if (!first.has(sg)) first.set(sg, { n: n[i], t: t[i] });
+  });
+  const X: number[][] = [];
+  const y: number[] = [];
+  for (let i = 0; i < n.length; i++) {
+    const row = new Array<number>(2 * k + 1).fill(0);
+    const j = col.get(seg[i])!;
+    const f = first.get(seg[i])!;
+    row[j] = 1;
+    row[k + j] = n[i] % 2 === 0 ? 1 : -1;
+    row[2 * k] = n[i] - f.n;
+    X.push(row);
+    y.push(t[i] - f.t);
   }
-  const det = (M: number[]) => M[0] * (M[4] * M[8] - M[5] * M[7]) - M[1] * (M[3] * M[8] - M[5] * M[6]) + M[2] * (M[3] * M[7] - M[4] * M[6]);
-  const D = det(S);
-  if (!(Math.abs(D) > 1e-12)) return null;
-  const solve = (k: number) => {
-    const M = [...S];
-    for (let p = 0; p < 3; p++) M[p * 3 + k] = r[p];
-    return det(M) / D;
-  };
-  const a = solve(0);
-  const b = solve(1);
-  const c = solve(2);
-  const resid = n.map((ni, i) => t[i] - (a + b * (ni - n0) + c * (ni % 2 === 0 ? 1 : -1)));
-  const ss = resid.reduce((s, e) => s + e * e, 0);
-  const s2 = ss / Math.max(1, m - 3);
-  // Variance of b: s² · (S⁻¹)₁₁, cofactor of element (1,1).
-  const cof11 = S[0] * S[8] - S[2] * S[6];
-  const sigmaB = Math.sqrt(Math.max(0, (s2 * cof11) / D));
-  S = [];
-  r = [];
-  return { a, b, c, resid, sigmaB };
+  const r = lsq(X, y);
+  if (!r) return null;
+  const b = r.coef[2 * k];
+  const polarity = (2000 * ids.reduce((acc, _, j) => acc + Math.abs(r.coef[k + j]), 0)) / k;
+  return { b, sigmaB: Math.sqrt(r.variance(2 * k)), resid: r.resid, polarity };
 }
 
 const median = (xs: number[]) => {
@@ -158,77 +149,109 @@ function findBeat(times: number[], step: number): { period: number; phase: numbe
 /**
  * Fit click times (seconds, sound-card clock). Returns null until there are
  * enough clicks on a steady 1 s or 2 s beat. Noise triggers between and
- * around the clicks are expected and ignored.
+ * around the clicks are expected and ignored. `breaks` are times where the
+ * audio dropped out: the beat is found and fitted afresh in each stretch.
  */
-export function analyzeQuartz(times: number[], opts: { minTicks?: number } = {}): QuartzResult | null {
+export function analyzeQuartz(times: number[], opts: { minTicks?: number; breaks?: number[] } = {}): QuartzResult | null {
   const minTicks = opts.minTicks ?? 8;
   if (times.length < minTicks) return null;
+  const breaks = [...(opts.breaks ?? [])].sort((p, q) => p - q);
+
+  const groups = new Map<number, number[]>();
+  for (const t of times) {
+    const g = segmentOf(t, breaks);
+    groups.set(g, [...(groups.get(g) ?? []), t]);
+  }
+  const largest = [...groups.values()].sort((p, q) => q.length - p.length)[0];
 
   // 1 s or 2 s steps? A 2 s watch fills only every other slot of a 1 s grid,
   // so both folds catch the same clicks; a 1 s watch puts half as many on a
-  // 2 s fold.
-  const b1 = findBeat(times, 1);
-  const b2 = findBeat(times, 2);
+  // 2 s fold. Decided on the longest stretch.
+  const b1 = findBeat(largest, 1);
+  const b2 = findBeat(largest, 2);
   if (!b1) return null;
   const stepSec: 1 | 2 = b2 && b2.hits > b1.hits * 0.8 ? 2 : 1;
-  const beat = stepSec === 2 ? b2! : b1;
-  const span = times[times.length - 1] - times[0];
-  // The beat must stand far above what noise alone would pile into one bin.
-  const expectedNoise = (times.length * 0.006) / stepSec + 1;
-  if (beat.hits < minTicks || beat.hits < 4 * expectedNoise || beat.hits < (span / stepSec) * 0.15) return null;
 
-  // Keep the clicks on the beat; one per step, the one nearest the grid.
-  const byStep = new Map<number, number>();
+  const seg: number[] = [];
+  const idx: number[] = [];
+  const tt: number[] = [];
   let rejected = 0;
-  for (const t of times) {
-    const k = Math.round((t - beat.phase) / beat.period);
-    const off = t - (beat.phase + k * beat.period);
-    if (Math.abs(off) > GATE_SEC) {
-      rejected++;
+  for (const [g, ts] of groups) {
+    const span = ts[ts.length - 1] - ts[0];
+    const beat = ts.length >= 6 ? findBeat(ts, stepSec) : null;
+    // The beat must stand far above what noise alone would pile into one bin.
+    const expectedNoise = (ts.length * 0.006) / stepSec + 1;
+    if (!beat || beat.hits < 6 || beat.hits < 4 * expectedNoise || beat.hits < (span / stepSec) * 0.15) {
+      rejected += ts.length;
       continue;
     }
-    const prev = byStep.get(k);
-    if (prev !== undefined) {
-      rejected++;
-      if (Math.abs(off) >= Math.abs(prev - (beat.phase + k * beat.period))) continue;
+    // Keep the clicks on the beat; one per step, the one nearest the grid.
+    const byStep = new Map<number, number>();
+    for (const t of ts) {
+      const k = Math.round((t - beat.phase) / beat.period);
+      const off = t - (beat.phase + k * beat.period);
+      if (Math.abs(off) > GATE_SEC) {
+        rejected++;
+        continue;
+      }
+      const prev = byStep.get(k);
+      if (prev !== undefined) {
+        rejected++;
+        if (Math.abs(off) >= Math.abs(prev - (beat.phase + k * beat.period))) continue;
+      }
+      byStep.set(k, t);
     }
-    byStep.set(k, t);
+    for (const k of [...byStep.keys()].sort((p, q) => p - q)) {
+      seg.push(g);
+      idx.push(k);
+      tt.push(byStep.get(k)!);
+    }
   }
-  const idx = [...byStep.keys()].sort((p, q) => p - q);
-  const tt = idx.map((k) => byStep.get(k)!);
   if (idx.length < minTicks) return null;
 
   // Fit, drop outliers (knocks, a noise burst on the beat), fit again.
-  let f = fit(idx, tt);
+  let f = segFit(seg, idx, tt);
   if (!f) return null;
   for (let round = 0; round < 3; round++) {
-    const mad = median(f.resid.map((e) => Math.abs(e - median(f!.resid))));
+    const res = f.resid;
+    const mad = median(res.map((e) => Math.abs(e - median(res))));
     const lim = Math.max(0.0005, 5 * 1.4826 * mad);
-    const keep = f.resid.map((e) => Math.abs(e) <= lim);
+    const keep = res.map((e) => Math.abs(e) <= lim);
     if (keep.every(Boolean)) break;
-    const n2 = idx.filter((_, i) => keep[i]);
-    const t2 = tt.filter((_, i) => keep[i]);
-    rejected += idx.length - n2.length;
-    idx.splice(0, idx.length, ...n2);
-    tt.splice(0, tt.length, ...t2);
-    if (idx.length < minTicks) return null;
-    const g = fit(idx, tt);
+    const n0 = keep.filter(Boolean).length;
+    if (n0 < minTicks) return null;
+    rejected += idx.length - n0;
+    for (const arr of [seg, idx, tt]) {
+      const kept = arr.filter((_, i) => keep[i]);
+      arr.splice(0, arr.length, ...kept);
+    }
+    const g = segFit(seg, idx, tt);
     if (!g) return null;
     f = g;
   }
 
   const rms = Math.sqrt(f.resid.reduce((acc, e) => acc + e * e, 0) / f.resid.length);
-  const steps = idx[idx.length - 1] - idx[0];
+  // Steps expected but not heard, and time covered, stretch by stretch.
+  let missed = 0;
+  let span = 0;
+  const used = [...new Set(seg)];
+  for (const g of used) {
+    const ks = idx.filter((_, i) => seg[i] === g);
+    const ts = tt.filter((_, i) => seg[i] === g);
+    missed += ks[ks.length - 1] - ks[0] + 1 - ks.length;
+    span += ts[ts.length - 1] - ts[0];
+  }
   return {
     stepSec,
     ticks: idx.length,
-    missed: steps + 1 - idx.length,
+    missed,
     rejected,
-    span: tt[tt.length - 1] - tt[0],
+    span,
+    stretches: used.length,
     rawPpm: (stepSec / f.b - 1) * 1e6,
     rawSigmaPpm: ((stepSec * f.sigmaB) / (f.b * f.b)) * 1e6,
     jitter: rms * 1000,
-    polarity: Math.abs(f.c) * 2000,
+    polarity: f.polarity,
   };
 }
 
@@ -242,11 +265,11 @@ export function quartzGrade(perMonth: number, specMonth = 15): 'good' | 'ok' | '
  * Pick the detector stream that hears the steps best: most clicks on the
  * beat, least jitter, few strays.
  */
-export function pickQuartzStream(streams: number[][], windowSec = 120): { index: number; result: QuartzResult; score: number } | null {
+export function pickQuartzStream(streams: number[][], windowSec = 120, breaks: number[] = []): { index: number; result: QuartzResult; score: number } | null {
   let best: { index: number; result: QuartzResult; score: number } | null = null;
   streams.forEach((s, index) => {
     const recent = s.length && windowSec ? s.filter((t) => t >= s[s.length - 1] - windowSec) : s;
-    const result = analyzeQuartz(recent);
+    const result = analyzeQuartz(recent, { breaks });
     if (!result) return;
     const heard = result.ticks / (result.ticks + result.missed);
     const clean = result.ticks / (result.ticks + result.rejected);

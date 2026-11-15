@@ -16,6 +16,7 @@
  */
 
 import type { ClockCorrection } from './quartz';
+import { lsq, segmentOf } from './lsq';
 
 export interface ClockSample {
   /** Sound-card time at the middle of the request, seconds. */
@@ -31,50 +32,74 @@ export interface ClockFit extends ClockCorrection {
   span: number;
 }
 
-/** Fit the sound card's clock error from reference samples. Null until there are enough. */
-export function fitClock(samples: ClockSample[], opts: { minSpan?: number; minSamples?: number } = {}): ClockFit | null {
+/**
+ * A real sound card is within a few hundred ppm. Anything beyond means the
+ * audio stalled or the network misbehaved, not that the clock is that far off.
+ */
+export const MAX_CLOCK_PPM = 400;
+
+/**
+ * Fit the sound card's clock error from reference samples. Null until there
+ * are enough. `breaks` are sound-card times where the audio dropped out: the
+ * offset jumps there, so each stretch gets its own offset and only the
+ * slope is shared.
+ */
+export function fitClock(samples: ClockSample[], opts: { minSpan?: number; minSamples?: number; breaks?: number[] } = {}): ClockFit | null {
   const minSpan = opts.minSpan ?? 60;
   const minSamples = opts.minSamples ?? 6;
+  const breaks = [...(opts.breaks ?? [])].sort((p, q) => p - q);
   if (samples.length < minSamples) return null;
   // Keep the faster round trips: their midpoint is closest to the truth.
   const rtts = samples.map((s) => s.rtt).sort((a, b) => a - b);
   const best = rtts[0];
   const cut = Math.max(best * 1.5, best + 0.03, rtts[Math.floor(rtts.length * 0.6)]);
   let use = samples.filter((s) => s.rtt <= cut);
-  if (use.length < minSamples) return null;
 
-  for (let round = 0; round < 3; round++) {
-    const n = use.length;
+  for (let round = 0; round < 4; round++) {
+    // Stretches with fewer than 3 samples can't contribute to the slope.
+    const counts = new Map<number, number>();
+    for (const s of use) counts.set(segmentOf(s.audio, breaks), (counts.get(segmentOf(s.audio, breaks)) ?? 0) + 1);
+    use = use.filter((s) => (counts.get(segmentOf(s.audio, breaks)) ?? 0) >= 3);
+    if (use.length < minSamples) return null;
+    const ids = [...new Set(use.map((s) => segmentOf(s.audio, breaks)))];
+    const col = new Map(ids.map((id, i) => [id, i]));
+    const k = ids.length;
     const a0 = use[0].audio;
-    const xs = use.map((s) => s.audio - a0);
-    const ys = use.map((s) => s.ref - s.audio);
-    const y0 = ys[0];
-    const yy = ys.map((y) => y - y0);
-    const mx = xs.reduce((p, x) => p + x, 0) / n;
-    const my = yy.reduce((p, y) => p + y, 0) / n;
-    let sxx = 0;
-    let sxy = 0;
-    for (let i = 0; i < n; i++) {
-      sxx += (xs[i] - mx) ** 2;
-      sxy += (xs[i] - mx) * (yy[i] - my);
+    const y0 = use[0].ref - use[0].audio;
+    const X = use.map((s) => {
+      const row = new Array<number>(k + 1).fill(0);
+      row[col.get(segmentOf(s.audio, breaks))!] = 1;
+      row[k] = s.audio - a0;
+      return row;
+    });
+    const y = use.map((s) => s.ref - s.audio - y0);
+    // Time actually covered: sum of each stretch's span.
+    let span = 0;
+    for (const id of ids) {
+      const xs = use.filter((s) => segmentOf(s.audio, breaks) === id).map((s) => s.audio);
+      span += xs[xs.length - 1] - xs[0];
     }
-    const span = xs[n - 1] - xs[0];
-    if (span < minSpan || !(sxx > 0)) return null;
-    const slope = sxy / sxx;
-    const resid = xs.map((x, i) => yy[i] - (my + slope * (x - mx)));
-    const s2 = resid.reduce((p, e) => p + e * e, 0) / Math.max(1, n - 2);
-    // Floor the scatter at 1 ms: the reference itself is only that good.
-    const sigmaY = Math.max(Math.sqrt(s2), 0.001);
-    const sd = [...resid].map(Math.abs).sort((a, b) => a - b)[Math.floor(n / 2)] * 1.4826;
+    if (span < minSpan) return null;
+    const r = lsq(X, y);
+    if (!r) return null;
+    const sd = [...r.resid].map(Math.abs).sort((p, q) => p - q)[Math.floor(r.resid.length / 2)] * 1.4826;
     const lim = Math.max(0.004, 4 * sd);
-    const keep = resid.map((e) => Math.abs(e) <= lim);
-    if (round < 2 && !keep.every(Boolean) && keep.filter(Boolean).length >= minSamples) {
+    const keep = r.resid.map((e) => Math.abs(e) <= lim);
+    if (round < 3 && !keep.every(Boolean) && keep.filter(Boolean).length >= minSamples) {
       use = use.filter((_, i) => keep[i]);
       continue;
     }
-    return { ppm: slope * 1e6, sigma: (sigmaY / Math.sqrt(sxx)) * 1e6, samples: n, span };
+    // Floor the scatter at 1 ms: the reference itself is only that good.
+    const s2 = Math.max(r.s2, 1e-6);
+    const sigma = Math.sqrt((r.variance(k) * s2) / r.s2 || 0);
+    return { ppm: r.coef[k] * 1e6, sigma: sigma * 1e6, samples: use.length, span };
   }
   return null;
+}
+
+/** A fit that a real sound card could produce, tight enough to use. */
+export function plausibleClock(f: ClockFit | null): boolean {
+  return !!f && Math.abs(f.ppm) <= MAX_CLOCK_PPM && f.sigma < 30;
 }
 
 /** Inverse-variance mean of several calibrations of the same sound card. */
@@ -124,7 +149,7 @@ export function savedClock(inputKey: string): SavedClock[] {
 
 /** Remember a calibration for this input. Only reasonably tight ones are kept. */
 export function saveClock(inputKey: string, fit: ClockFit): void {
-  if (!(fit.sigma < 5) || !(fit.span >= 120)) return;
+  if (!plausibleClock(fit) || !(fit.sigma < 5) || !(fit.span >= 120)) return;
   try {
     const all = load();
     all[inputKey] = [{ ppm: fit.ppm, sigma: fit.sigma, at: Date.now(), span: fit.span }, ...(all[inputKey] ?? [])].slice(0, KEEP);
@@ -149,7 +174,8 @@ export function forgetClock(inputKey: string): void {
  * for the same input.
  */
 export function bestClock(own: ClockFit | null, saved: SavedClock[]): { correction: ClockCorrection | null; source: 'test' | 'saved' | 'both' | 'none' } {
-  const parts: ClockCorrection[] = [...(own ? [own] : []), ...saved];
+  if (own && !plausibleClock(own)) own = null;
+  const parts: ClockCorrection[] = [...(own ? [own] : []), ...saved.filter((x) => Math.abs(x.ppm) <= MAX_CLOCK_PPM)];
   const correction = combineClock(parts);
   return { correction, source: !correction ? 'none' : own && saved.length ? 'both' : own ? 'test' : 'saved' };
 }

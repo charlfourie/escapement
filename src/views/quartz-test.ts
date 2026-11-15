@@ -11,7 +11,7 @@ import { AudioEngine, listInputs, type EngineUpdate } from '../audio/engine';
 import { AUTO_BANK } from '../audio/detector';
 import { DEFAULT_QSIM } from '../audio/synth';
 import { AutoLock } from '../analysis/autolock';
-import { bestClock, fitClock, forgetClock, savedClock, saveClock, type ClockFit, type ClockSample } from '../analysis/clock';
+import { bestClock, fitClock, forgetClock, plausibleClock, savedClock, saveClock, type ClockFit, type ClockSample } from '../analysis/clock';
 import { pickQuartzStream, ppmToDay, quartzGrade, quartzRate, type QuartzResult } from '../analysis/quartz';
 import { db, newId, type QuartzTest, type Watch } from '../db';
 import { loadPrefs, savePrefs } from '../prefs';
@@ -62,6 +62,7 @@ export function quartzTestView(root: HTMLElement, watchId: string | null): () =>
   let audioStart = 0;
   let timer = 0;
   let clockTimer = 0;
+  let dropTimer = 0;
   let wakeLock: { release(): Promise<void> } | null = null;
   let clockFailures = 0;
 
@@ -80,6 +81,7 @@ export function quartzTestView(root: HTMLElement, watchId: string | null): () =>
   const progress = h('div', { class: 'q-progress-fill' });
   const statusEl = h('p', { class: 'lock-status' });
   const alertEl = h('div', { class: 'message warn', hidden: true });
+  const dropEl = h('div', { class: 'message warn', hidden: true });
   const resultPanel = h('section', { class: 'panel save', hidden: true });
   const startBtn = h('button', { class: 'btn primary', onclick: () => void (state === 'running' || state === 'starting' ? finish(false) : start()) }, 'Start');
   const deviceSel = h('select', { onchange: (e: Event) => savePrefs({ deviceId: (e.target as HTMLSelectElement).value }) });
@@ -151,6 +153,40 @@ export function quartzTestView(root: HTMLElement, watchId: string | null): () =>
     );
   }
 
+  // ---------- diagnostics ----------
+  let diag: Record<string, unknown> | null = null;
+  function diagnostics(): Record<string, unknown> {
+    const breaks = tickBreaks();
+    return {
+      app: 'escapement',
+      kind: calibrateOnly ? 'clock-calibration' : 'quartz-test',
+      at: new Date().toISOString(),
+      userAgent: navigator.userAgent,
+      source,
+      minutes,
+      engine: engine.describe(),
+      dropouts: engine.dropouts,
+      breaksTickTime: breaks,
+      clockSamples: samples,
+      clockFit: ownClock,
+      savedClock: savedClock(key),
+      chosenStream: chosen,
+      streamCounts: lock?.streams.map((x) => x.length),
+      ticks: chosen >= 0 && lock ? lock.streams[chosen] : [],
+      result,
+    };
+  }
+  function downloadDiagnostics() {
+    const blob = new Blob([JSON.stringify(diag ?? diagnostics())], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = h('a', { href: url, download: `escapement-quartz-diagnostics-${Date.now()}.json` });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  const diagBtn = () => h('button', { class: 'btn small', onclick: downloadDiagnostics, title: 'Timings, clock checks and dropouts from this run, to help fix problems' }, 'Download diagnostics');
+
   // ---------- running ----------
   function onUpdate(u: EngineUpdate) {
     if (!lock) return;
@@ -170,7 +206,7 @@ export function quartzTestView(root: HTMLElement, watchId: string | null): () =>
     } catch {
       clockFailures++;
     }
-    ownClock = fitClock(samples);
+    ownClock = fitClock(samples, { breaks: engine.dropouts.map((d) => d.at) });
   }
 
   function analyse() {
@@ -179,9 +215,10 @@ export function quartzTestView(root: HTMLElement, watchId: string | null): () =>
     if (!calibrateOnly) {
       // Choose the detector that hears the steps best (with some stickiness),
       // then fit the whole run on it.
-      const pick = pickQuartzStream(lock.streams, 120);
+      const breaks = tickBreaks();
+      const pick = pickQuartzStream(lock.streams, 120, breaks);
       if (pick && (chosen < 0 || pick.index === chosen || pick.score > (pickScore(chosen) ?? 0) * 1.15)) chosen = pick.index;
-      const all = chosen >= 0 ? pickQuartzStream([lock.streams[chosen]], 0) : null;
+      const all = chosen >= 0 ? pickQuartzStream([lock.streams[chosen]], 0, breaks) : null;
       result = all?.result ?? null;
     }
     render(elapsed);
@@ -190,7 +227,19 @@ export function quartzTestView(root: HTMLElement, watchId: string | null): () =>
 
   function pickScore(i: number): number | null {
     if (!lock || i < 0) return null;
-    return pickQuartzStream([lock.streams[i]], 120)?.score ?? null;
+    return pickQuartzStream([lock.streams[i]], 120, tickBreaks())?.score ?? null;
+  }
+
+  /** Audio dropouts, on the tick timeline. */
+  function tickBreaks(): number[] {
+    return engine.dropouts.map((d) => engine.toTickTime(d.at));
+  }
+
+  function renderDropouts() {
+    const n = engine.dropouts.length;
+    const total = engine.dropouts.reduce((a, d) => a + Math.abs(d.gap), 0);
+    dropEl.hidden = n === 0;
+    dropEl.textContent = `The computer’s audio stalled ${n} time${n === 1 ? '' : 's'} (${total.toFixed(1)} s in all). The test allows for it, measuring between the stalls, but each one costs precision. Keep this tab in front, close heavy apps, and don’t let the computer sleep.`;
   }
 
   function clockState() {
@@ -206,9 +255,14 @@ export function quartzTestView(root: HTMLElement, watchId: string | null): () =>
 
     // Clock
     const { correction, src } = clockState();
-    if (ownClock) {
+    renderDropouts();
+    const drops = engine.dropouts.length ? ` · ${engine.dropouts.length} dropouts` : '';
+    if (ownClock && !plausibleClock(ownClock)) {
+      roClock.value.textContent = 'Unreliable';
+      roClock.sub.textContent = `not used: audio stalls or a slow connection${drops}`;
+    } else if (ownClock) {
       roClock.value.textContent = `${fmtSigned(ownClock.ppm, 1)} ppm`;
-      roClock.sub.textContent = `± ${ownClock.sigma.toFixed(1)} · ${ownClock.samples} internet checks`;
+      roClock.sub.textContent = `± ${ownClock.sigma.toFixed(1)} · ${ownClock.samples} internet checks${drops}`;
     } else if (clockFailures > 3) {
       roClock.value.textContent = 'No internet time';
       roClock.sub.textContent = savedClock(key).length ? 'Using the saved calibration' : 'Rate won’t be corrected';
@@ -272,7 +326,7 @@ export function quartzTestView(root: HTMLElement, watchId: string | null): () =>
         calibrateOnly || source === 'qsim'
           ? ({ kind: 'qsim', params: calibrateOnly ? { ...DEFAULT_QSIM, noise: 0 } : DEFAULT_QSIM } as const)
           : ({ kind: 'mic', deviceId: loadPrefs().deviceId || undefined } as const);
-      await engine.start(src, { auto: true, denoise: loadPrefs().denoise, detector: {} });
+      await engine.start(src, { auto: true, denoise: loadPrefs().denoise, detector: {}, latency: 'playback' });
       // One click per step: a long dead time stops echoes counting twice.
       engine.setRefractory(400);
     } catch (err) {
@@ -292,6 +346,7 @@ export function quartzTestView(root: HTMLElement, watchId: string | null): () =>
     }
     void sampleClock();
     clockTimer = window.setInterval(() => void sampleClock(), CLOCK_EVERY_MS);
+    dropTimer = window.setInterval(() => engine.pollDropouts(), 250);
     timer = window.setInterval(analyse, 1000);
     analyse();
   }
@@ -302,6 +357,8 @@ export function quartzTestView(root: HTMLElement, watchId: string | null): () =>
     state = 'done';
     clearInterval(timer);
     clearInterval(clockTimer);
+    clearInterval(dropTimer);
+    diag = diagnostics();
     void wakeLock?.release().catch(() => {});
     wakeLock = null;
     const elapsed = (engine.audioNow() ?? audioStart) - audioStart;
@@ -319,9 +376,12 @@ export function quartzTestView(root: HTMLElement, watchId: string | null): () =>
     if (calibrateOnly) {
       resultPanel.replaceChildren(
         h('header', { class: 'panel-head' }, h('h2', null, ownClock ? 'Calibration saved' : 'Not enough data')),
-        ownClock
-          ? h('p', null, `This computer’s sound card runs ${fmtSigned(ownClock.ppm, 1)} ppm (± ${ownClock.sigma.toFixed(1)}) against internet time. Quartz tests on this computer now correct for it.`)
-          : h('p', null, 'The calibration needs a few minutes of internet time checks. Keep the tab open and in front, and check you’re online.'),
+        plausibleClock(ownClock)
+          ? h('p', null, `This computer’s sound card runs ${fmtSigned(ownClock!.ppm, 1)} ppm (± ${ownClock!.sigma.toFixed(1)}) against internet time. Quartz tests on this computer now correct for it.`)
+          : ownClock
+            ? h('p', null, `The result (${fmtSigned(ownClock.ppm, 0)} ppm ± ${ownClock.sigma.toFixed(0)}) isn’t something a real sound card does, so it wasn’t saved. Audio stalls or a slow connection are the usual causes; try again with the tab in front.`)
+            : h('p', null, 'The calibration needs a few minutes of internet time checks. Keep the tab open and in front, and check you’re online.'),
+        h('div', { class: 'actions' }, diagBtn()),
       );
       return;
     }
@@ -329,6 +389,7 @@ export function quartzTestView(root: HTMLElement, watchId: string | null): () =>
       resultPanel.replaceChildren(
         h('header', { class: 'panel-head' }, h('h2', null, 'No result')),
         h('p', null, result ? 'Stopped before a minute: too short for a quartz rate. Run at least 5 minutes.' : 'No steady once-a-second clicks were heard. See “Where to clip the pickup” below, and check the input level in Pickup Lab.'),
+        h('div', { class: 'actions' }, diagBtn()),
       );
       return;
     }
@@ -350,6 +411,7 @@ export function quartzTestView(root: HTMLElement, watchId: string | null): () =>
           rawPpm: r.rawPpm,
           jitter: r.jitter,
           clock: { source: src, ppm: correction?.ppm ?? null, sigma: correction?.sigma ?? null },
+          dropouts: engine.dropouts.length,
           notes: source === 'qsim' ? 'Simulated watch' : '',
           updatedAt: Date.now(),
         }
@@ -374,7 +436,7 @@ export function quartzTestView(root: HTMLElement, watchId: string | null): () =>
         'div',
         { class: 'q-summary' },
         h('div', null, h('strong', { 'data-grade': quartzGrade(q.perMonth, SPEC_MONTH) }, `${fmtSigned(q.perMonth)} s/month`), ` ± ${q.sigmaMonth.toFixed(1)}`),
-        h('div', { class: 'muted small' }, `${fmtSigned(ppmToDay(q.ppm), 2)} s/day · ${r.ticks} clicks over ${mmss(r.span)} · timing ${r.jitter.toFixed(2)} ms`),
+        h('div', { class: 'muted small' }, `${fmtSigned(ppmToDay(q.ppm), 2)} s/day · ${r.ticks} clicks over ${mmss(r.span)}${r.stretches > 1 ? ` in ${r.stretches} stretches between audio dropouts` : ''} · timing ${r.jitter.toFixed(2)} ms`),
         h(
           'p',
           { class: 'small' },
@@ -393,6 +455,7 @@ export function quartzTestView(root: HTMLElement, watchId: string | null): () =>
         { class: 'actions' },
         watch && h('a', { class: 'btn primary', href: `#/watches/${watch.id}` }, 'View this watch'),
         h('a', { class: 'btn', href: '#/log' }, 'Open the Log'),
+        diagBtn(),
         rec &&
           h(
             'button',
@@ -443,6 +506,7 @@ export function quartzTestView(root: HTMLElement, watchId: string | null): () =>
           h('div', { class: 'q-progress' }, progress),
           statusEl,
           alertEl,
+          dropEl,
           savedEl,
         ),
         h('div', { class: 'readouts q-readouts' }, ...(calibrateOnly ? [roTime.el, roClock.el] : [roRate.el, roTime.el, roClicks.el, roTiming.el, roClock.el])),
@@ -472,6 +536,7 @@ export function quartzTestView(root: HTMLElement, watchId: string | null): () =>
   return () => {
     clearInterval(timer);
     clearInterval(clockTimer);
+    clearInterval(dropTimer);
     void wakeLock?.release().catch(() => {});
     void engine.stop();
   };

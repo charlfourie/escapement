@@ -60,7 +60,14 @@ class TickProcessor extends AudioWorkletProcessor {
     };
   }
 
+  private announced = false;
+
   process(inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
+    if (!this.announced) {
+      // Tick times count from here; tell the page where that is on the context's clock.
+      this.port.postMessage({ type: 'origin', time: currentFrame / sampleRate });
+      this.announced = true;
+    }
     let input: Float32Array | undefined;
     const out = outputs[0]?.[0];
 

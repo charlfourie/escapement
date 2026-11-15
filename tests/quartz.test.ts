@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeQuartz, ppmToMonth, quartzRate } from '../src/analysis/quartz';
-import { bestClock, combineClock, fitClock, type ClockSample } from '../src/analysis/clock';
+import { DropoutDetector } from '../src/audio/dropouts';
+import { bestClock, combineClock, fitClock, MAX_CLOCK_PPM, plausibleClock, type ClockSample } from '../src/analysis/clock';
 
 function rng(seed: number) {
   let s = seed >>> 0;
@@ -76,6 +77,70 @@ describe('analyzeQuartz', () => {
   });
 });
 
+/**
+ * Audio that stalls: during a dropout the sound card's clock stops while real
+ * time goes on, so every later click (and clock sample) shifts by the stall.
+ */
+function stall(times: number[], stalls: Array<[number, number]>): { times: number[]; breaks: number[] } {
+  const breaks: number[] = [];
+  let shift = 0;
+  const out: number[] = [];
+  let si = 0;
+  for (const t of times) {
+    while (si < stalls.length && t >= stalls[si][0]) {
+      shift += stalls[si][1];
+      breaks.push(stalls[si][0] - shift + stalls[si][1]);
+      si++;
+    }
+    const [at, len] = stalls[si - 1] ?? [-1, 0];
+    if (si > 0 && t < at + len) continue; // lost while stalled
+    out.push(t - shift);
+  }
+  return { times: out, breaks };
+}
+
+describe('audio dropouts', () => {
+  const stalls: Array<[number, number]> = [
+    [61.3, 1.7],
+    [140.2, 2.37],
+    [222.8, 0.83],
+    [270.5, 2.21],
+  ];
+
+  it('quartz rate survives dropouts when they are known', () => {
+    const { times, breaks } = stall(clicks({ ppm: -17, seconds: 320, jitterMs: 0.8, seed: 21 }), stalls);
+    const blind = analyzeQuartz(times);
+    // Without knowing about the dropouts only one stretch's clicks fit.
+    expect(blind!.ticks).toBeLessThan(times.length * 0.4);
+    const r = analyzeQuartz(times, { breaks })!;
+    expect(r.stretches).toBe(5);
+    expect(r.span).toBeGreaterThan(280);
+    expect(Math.abs(r.rawPpm + 17)).toBeLessThan(4 * r.rawSigmaPpm + 0.2);
+  });
+
+  it('clock fit survives dropouts and rejects impossible clocks', () => {
+    const { u, g } = rng(31);
+    const samples: ClockSample[] = [];
+    let shift = 0;
+    let si = 0;
+    const breaks: number[] = [];
+    for (let t = 0; t < 600; t += 3) {
+      while (si < stalls.length && t >= stalls[si][0]) {
+        shift += stalls[si][1];
+        breaks.push(stalls[si][0] - shift + stalls[si][1]);
+        si++;
+      }
+      samples.push({ audio: 5 + t * (1 - 12e-6) - shift, ref: 1.8e9 + t + g() * 0.004, rtt: 0.2 + u() * 0.05 });
+    }
+    const naive = fitClock(samples)!;
+    expect(Math.abs(naive.ppm)).toBeGreaterThan(MAX_CLOCK_PPM);
+    expect(bestClock(naive, []).source).toBe('none');
+    const f = fitClock(samples, { breaks })!;
+    expect(Math.abs(f.ppm - 12)).toBeLessThan(4 * f.sigma + 0.5);
+    expect(plausibleClock(f)).toBe(true);
+  });
+});
+
 describe('clock calibration', () => {
   function samples(ppm: number, seconds: number, every: number, seed = 5): ClockSample[] {
     const { u, g } = rng(seed);
@@ -106,5 +171,25 @@ describe('clock calibration', () => {
     expect(tight.sigma).toBeCloseTo(Math.sqrt(0.5));
     expect(bestClock(null, []).source).toBe('none');
     expect(bestClock({ ppm: 3, sigma: 1, samples: 10, span: 300 }, [{ ppm: 4, sigma: 1, at: 0, span: 600 }]).source).toBe('both');
+  });
+});
+
+describe('dropout detector', () => {
+  it('ignores timestamp jitter and one-off spikes, and catches real stalls', () => {
+    const d = new DropoutDetector();
+    const { g } = rng(41);
+    let stalled = 0;
+    for (let i = 0; i < 2400; i++) {
+      const real = i * 0.25;
+      if (i === 800) stalled += 1.3;
+      if (i === 1700) stalled += 0.04;
+      const audio = real * (1 + 20e-6) - stalled;
+      const spike = i % 97 === 0 ? 0.03 : 0;
+      d.feed(audio, 100 + real + g() * 0.002 + spike);
+    }
+    expect(d.dropouts).toHaveLength(2);
+    expect(d.dropouts[0].gap).toBeCloseTo(1.3, 1);
+    expect(d.dropouts[0].at).toBeCloseTo(200 - 1.3, 0);
+    expect(d.dropouts[1].gap).toBeCloseTo(0.04, 1);
   });
 });

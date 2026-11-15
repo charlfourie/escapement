@@ -187,6 +187,8 @@ export interface QuartzTest {
   jitter: number;
   /** Sound card clock correction used: where it came from and its value (ppm). */
   clock: { source: 'test' | 'saved' | 'both' | 'none'; ppm: number | null; sigma: number | null };
+  /** Audio dropouts during the run (older tests: absent). */
+  dropouts?: number;
   notes: string;
   updatedAt: number;
 }
