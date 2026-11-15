@@ -188,7 +188,12 @@ export function welcomeView(root: HTMLElement): void {
         { class: 'welcome-features' },
         section('Mechanical watches', 'Rate in seconds a day, beat error and amplitude, live as it listens. The six-position test turns the watch through dial up, dial down and four crown positions for the full picture.', mini.trace()),
         section('Quartz watches', 'The seconds hand’s motor clicks once a second. Timed for ten minutes against internet time, that gives the rate in seconds a month, and a low battery shows up as 2-second steps.', mini.quartz()),
-        section('Your collection', 'Photos or a drawn face for each watch, its history, battery changes and time checks. Identify a vintage piece from photos of the caseback, free, with the AI chat you already use.', faces),
+        section('Your collection', 'Photos for each watch, its history, battery changes and time checks. Identify a vintage piece from photos of the caseback, free, with the AI chat you already use.', faces),
+        h(
+          'p',
+          { class: 'welcome-aside muted' },
+          'No photo yet? Each watch gets what may be the most over-engineered image placeholder ever: a face drawn for its movement, showing the real time, with the seconds hand ticking at that watch’s own beat rate.',
+        ),
       ),
 
       h(
