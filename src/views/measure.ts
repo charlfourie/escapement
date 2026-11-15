@@ -771,7 +771,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
       b.classList.toggle('auto', SPANS[i] === span && span !== prefs.traceSpan);
       b.title = SPANS[i] === span && span !== prefs.traceSpan ? 'Zoomed out to fit the trace' : '';
     });
-    drawTrace(traceCanvas, prefs.traceAll ? pts : cleanTrace(pts), { spanMs: span, windowSec: null, message: msg });
+    drawTrace(traceCanvas, prefs.traceAll ? pts : cleanTrace(pts), { spanMs: span, windowSec: null, message: msg, follow: true });
     // The learned average of hundreds of beats; until there is one, the recent ticks lined up on their main click.
     const learned = autolock ? autolock.template(lock?.index ?? 0) : aligner.average;
     const avg = learned && learned.length === (snippets[0]?.length ?? learned.length) ? learned : alignedMean(snippets);

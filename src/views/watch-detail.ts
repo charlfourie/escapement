@@ -1,7 +1,7 @@
 import { db, deleteWatch, isTimegraphable, movementId, MOVEMENT_TYPES, POSITIONS, WIND_STATES, watchMeasurements, type Measurement } from '../db';
 import { timeCheckPanel } from './time-check';
 import { batteryPanel, quartzTestsPanel } from './quartz-panel';
-import { drawTrace } from '../ui/canvas';
+import { drawTrace, fitSpan } from '../ui/canvas';
 import { historyChart } from '../ui/history-chart';
 import { h, toast } from '../util/dom';
 import { fmtBph, fmtDate, fmtDateTime, fmtDuration, fmtMs, fmtRate, rateGrade, ranfftUrl } from '../util/format';
@@ -106,7 +106,7 @@ export function watchDetailView(root: HTMLElement, id: string): void {
             title: 'Show trace',
             onclick: () => {
               traceRow.hidden = !traceRow.hidden;
-              if (!traceRow.hidden) drawTrace(traceRow.querySelector('canvas')!, m.trace, { spanMs: 10, windowSec: null });
+              if (!traceRow.hidden) drawTrace(traceRow.querySelector('canvas')!, m.trace, { spanMs: fitSpan(m.trace, 10, [2, 5, 10, 20, 50]), windowSec: null, follow: true });
             },
           },
           h('td', null, fmtDateTime(m.takenAt)),

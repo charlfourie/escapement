@@ -23,6 +23,11 @@ export interface TraceOptions {
   /** Seconds of history visible; null = fit everything. */
   windowSec: number | null;
   message?: string;
+  /**
+   * Past the window, follow the newest ticks instead of wrapping: the chart
+   * re-centres on them and the oldest dots slide off the edge.
+   */
+  follow?: boolean;
 }
 
 /**
@@ -44,12 +49,26 @@ export function drawTrace(canvas: HTMLCanvasElement, points: TracePoint[], opts:
   ctx.strokeStyle = grid;
   ctx.lineWidth = 1;
 
+  // Plotted upward as "ahead" (−dev): a gaining watch's ticks come early and climb.
+  // Following: centre on the newest ticks once the trace outgrows the window.
+  // Scroll only as far as needed to keep the newest ticks within 80% of the
+  // edge, so it moves on smoothly from the normal view, like paper feeding.
+  let centre = 0;
+  if (opts.follow && points.length) {
+    const recent = points.slice(-20).map((p) => -p.dev).sort((a, b) => a - b);
+    const latest = recent[recent.length >> 1];
+    const room = 0.4 * span;
+    if (Math.abs(latest) > room) centre = latest - Math.sign(latest) * room;
+  }
+  const following = centre !== 0;
+  const yOf = (ahead: number) => pad.t + ph / 2 - ((ahead - centre) / span) * ph;
+
   // Horizontal ms grid
   const step = span <= 5 ? 1 : span <= 10 ? 2 : span <= 25 ? 5 : 10;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
-  for (let v = -span / 2; v <= span / 2 + 1e-9; v += step) {
-    const y = pad.t + ph / 2 - (v / span) * ph;
+  for (let v = Math.ceil((centre - span / 2) / step - 1e-9) * step; v <= centre + span / 2 + 1e-9; v += step) {
+    const y = yOf(v);
     ctx.globalAlpha = Math.abs(v) < 1e-9 ? 1 : 0.55;
     ctx.beginPath();
     ctx.moveTo(pad.l, Math.round(y) + 0.5);
@@ -90,10 +109,16 @@ export function drawTrace(canvas: HTMLCanvasElement, points: TracePoint[], opts:
   const r = 1.8;
   for (const p of points) {
     if (p.t < tMin) continue;
-    const wrapped = ((((p.dev + span / 2) % span) + span) % span) - span / 2;
     const x = pad.l + ((p.t - x0) / xSpan) * pw;
-    // dev is how late a tick is; a gaining watch ticks early, and timegraphers draw that sloping up.
-    const y = pad.t + ph / 2 + (wrapped / span) * ph;
+    let y: number;
+    if (following) {
+      y = yOf(-p.dev);
+      if (y < pad.t - r || y > pad.t + ph + r) continue; // slid off the edge
+    } else {
+      // Past the window, wrap like timegrapher paper.
+      const wrapped = ((((p.dev + span / 2) % span) + span) % span) - span / 2;
+      y = pad.t + ph / 2 + (wrapped / span) * ph;
+    }
     ctx.fillStyle = p.odd ? toc : tic;
     ctx.fillRect(x - r, y - r, r * 2, r * 2);
   }
