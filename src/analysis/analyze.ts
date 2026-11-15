@@ -155,24 +155,57 @@ export function analyze(allTimes: number[], opts: AnalyzeOptions = {}): Analysis
   const t0 = times[best.sel[0]];
   let ts = best.sel.map((i) => times[i] - t0);
   let ns = best.idx.slice();
-  let coeffs: { a: number; b: number; c: number | null } | null = null;
+
+  // A gap in the ticks (the beat lost for a moment) can come back with the
+  // whole line shifted a few ms: another detector, a re-learned tick shape.
+  // Each unbroken stretch gets its own offset; they share the slope (the rate)
+  // and the beat error, so one step can't tilt the whole reading.
+  const GAP = Math.max(1, 6 * P);
+  let seg: number[] = [];
+  {
+    let k = 0;
+    ts.forEach((t, i) => {
+      if (i && t - ts[i - 1] > GAP) k++;
+      seg.push(k);
+    });
+    // Too few ticks to place a stretch on its own: leave it out.
+    const count = new Map<number, number>();
+    for (const g of seg) count.set(g, (count.get(g) ?? 0) + 1);
+    const keep = seg.map((g) => (count.get(g) ?? 0) >= 6);
+    if (keep.some(Boolean)) {
+      ts = ts.filter((_, i) => keep[i]);
+      ns = ns.filter((_, i) => keep[i]);
+      seg = seg.filter((_, i) => keep[i]);
+    }
+    const ids = [...new Set(seg)];
+    seg = seg.map((g) => ids.indexOf(g));
+  }
+
+  let coeffs: { a: number[]; b: number; c: number | null } | null = null;
   let sigma = 0;
 
   for (let iter = 0; iter < 4; iter++) {
     if (ts.length < 8) return null;
+    const S = Math.max(...seg) + 1;
     const ss = ns.map((n) => (n % 2 === 0 ? -0.5 : 0.5));
     const hasBoth = ss.some((s) => s < 0) && ss.some((s) => s > 0);
-    const ones = ts.map(() => 1);
-    const sol = hasBoth ? lstsq([ones, ns, ss], ts) : lstsq([ones, ns], ts);
+    const segCols = Array.from({ length: S }, (_, j) => seg.map((g) => (g === j ? 1 : 0)));
+    const sol = lstsq(hasBoth ? [...segCols, ns, ss] : [...segCols, ns], ts);
     if (!sol) return null;
-    coeffs = { a: sol[0], b: sol[1], c: hasBoth ? sol[2] : null };
-    const res = ts.map((t, i) => t - (sol[0] + sol[1] * ns[i] + (hasBoth ? sol[2] * ss[i] : 0)));
+    const a = sol.slice(0, S);
+    coeffs = { a, b: sol[S], c: hasBoth ? sol[S + 1] : null };
+    const res = ts.map((t, i) => t - (a[seg[i]] + sol[S] * ns[i] + (hasBoth ? sol[S + 1] * ss[i] : 0)));
     sigma = 1.4826 * median(res.map(Math.abs));
     const limit = Math.max(4 * sigma, 0.00015);
     const keep = res.map((r) => Math.abs(r) <= limit);
     if (keep.every(Boolean)) break;
     ts = ts.filter((_, i) => keep[i]);
     ns = ns.filter((_, i) => keep[i]);
+    seg = seg.filter((_, i) => keep[i]);
+    // A stretch emptied by outlier removal: renumber the rest.
+    const ids = [...new Set(seg)];
+    seg = seg.map((g) => ids.indexOf(g));
+    if (coeffs) coeffs.a = ids.map((g) => coeffs!.a[g]);
   }
   if (!coeffs || ts.length < 8) return null;
 
@@ -180,8 +213,10 @@ export function analyze(allTimes: number[], opts: AnalyzeOptions = {}): Analysis
   const span = ns[ns.length - 1] - ns[0] + 1;
   const tFirst = ts[0];
   // The trace is anchored to its start, not to the fit: as more ticks come in
-  // and the fit is refined, the dots already drawn stay where they are.
-  const raw = ts.map((t, i) => (t - P * (ns[i] - ns[0])) * 1000);
+  // and the fit is refined, the dots already drawn stay where they are. Later
+  // stretches are shifted by their fitted offset so the line runs on unbroken.
+  const step = (i: number) => (coeffs!.a[seg[i]] - coeffs!.a[seg[0]]) * 1000;
+  const raw = ts.map((t, i) => (t - P * (ns[i] - ns[0])) * 1000 - step(i));
   const anchor = median(raw.slice(0, Math.min(20, raw.length)));
   // "toc" (odd) is always the later of the two ticks, so the two lines keep
   // their places even when the analysis starts from a different tick.

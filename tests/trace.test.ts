@@ -30,3 +30,36 @@ describe('trace', () => {
     }
   });
 });
+
+describe('dropouts', () => {
+  // +31 s/day; the beat lost for 2 s at 30 s, then back with every tick 8 ms early.
+  function dropout() {
+    const P = 3600 / 21600;
+    const k = 1 - 31 / 86400;
+    let s = 5;
+    const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647 - 0.5) * 0.0003;
+    const out: number[] = [];
+    for (let i = 0; i < 360; i++) {
+      const t = i * P * k + (i % 2 ? 0.0019 : 0) + rnd();
+      if (t > 30 && t < 32) continue;
+      out.push(5 + t - (t >= 32 ? 0.008 : 0));
+    }
+    return out;
+  }
+
+  it('keeps the rate right across a dropout that shifts the line', () => {
+    const a = analyze(dropout(), { bph: 21600 })!;
+    expect(a.rate).toBeGreaterThan(29);
+    expect(a.rate).toBeLessThan(33);
+    expect(a.beatError!).toBeCloseTo(1.9, 0);
+  });
+
+  it('draws the trace on across the gap without a step', () => {
+    const a = analyze(dropout(), { bph: 21600 })!;
+    const i = a.points.findIndex((p) => p.t > 26.5);
+    const before = a.points.slice(i - 6, i).filter((p) => !p.odd);
+    const after = a.points.slice(i, i + 6).filter((p) => !p.odd);
+    const gap = Math.abs(after[0].dev - before[before.length - 1].dev);
+    expect(gap).toBeLessThan(1);
+  });
+});

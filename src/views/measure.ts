@@ -9,7 +9,7 @@ import { liftFromEnvelope } from '../analysis/lift';
 import { PositionTest, SETTLE_SEC, STEP_SEC } from './position-test';
 import { blankWatch, db, isTimegraphable, newId, POSITIONS, WIND_STATES, type Measurement, type Position, type Watch, type WindState } from '../db';
 import { loadPrefs, savePrefs } from '../prefs';
-import { cleanTrace, drawTrace, drawWaveform, fitSpan } from '../ui/canvas';
+import { alignedMean, cleanTrace, drawTrace, drawWaveform, fitSpan } from '../ui/canvas';
 import { plusMinus, Settler, type Settled } from '../analysis/settle';
 import { downloadBlob, encodeWav, h, select, toast } from '../util/dom';
 import { beatErrorGrade, fmtBph, fmtDuration, fmtHz, fmtMs, fmtRate, gradeLabel, rateGrade } from '../util/format';
@@ -72,6 +72,8 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
   /** When the readouts last had a reading, for holding them through a short dropout. */
   let lastGoodAt = 0;
   const HOLD_MS = 10_000;
+  /** Share of beats that must line up for a live reading to count. */
+  const MIN_QUALITY = 0.45;
   let liveAmp: AmplitudeResult | null = null;
   let fullAmp: AmplitudeResult | null = null;
   let mode: Mode = query.get('mode') === 'test' ? 'test' : 'single';
@@ -680,14 +682,18 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
     const r = state === 'stopped' ? full : live;
     const amp = state === 'stopped' ? fullAmp : liveAmp;
     const running = state === 'running';
-    if (running && recompute && r) {
+    // A reading counts once most beats line up; a weaker one (the signal
+    // breaking up just before the beat is lost) is treated like a dropout.
+    const good = !!r && r.quality >= MIN_QUALITY;
+    const recent = lastGoodAt > 0 && performance.now() - lastGoodAt < HOLD_MS;
+    if (running && recompute && r && (good || !recent)) {
       settle.rate.push(r.rate);
       settle.be.push(r.beatError);
       settle.amp.push(amp?.amplitude);
-      lastGoodAt = performance.now();
+      if (good) lastGoodAt = performance.now();
     }
     // A short dropout: keep the last good values on screen, greyed out.
-    const holding = running && !r && lastGoodAt > 0 && performance.now() - lastGoodAt < HOLD_MS;
+    const holding = running && !good && recent;
     const show = (ro: ReturnType<typeof readout>, text: string, pm: string) => ro.value.replaceChildren(text, pm ? h('span', { class: 'ro-pm' }, pm) : '');
     // While running, the settled value; once stopped, the whole run's fit, with the ± seen while running.
     const val = (st: Settler, exact: number | null | undefined): Settled | null => {
@@ -766,8 +772,10 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
       b.title = SPANS[i] === span && span !== prefs.traceSpan ? 'Zoomed out to fit the trace' : '';
     });
     drawTrace(traceCanvas, prefs.traceAll ? pts : cleanTrace(pts), { spanMs: span, windowSec: null, message: msg });
-    const avg = autolock ? autolock.template(lock?.index ?? 0) : aligner.average;
-    drawWaveform(waveCanvas, snippets, SNIPPET_BIN_MS, SNIPPET_PRE_MS, avg && avg.length === (snippets[0]?.length ?? avg.length) ? avg : null);
+    // The learned average of hundreds of beats; until there is one, the recent ticks lined up on their main click.
+    const learned = autolock ? autolock.template(lock?.index ?? 0) : aligner.average;
+    const avg = learned && learned.length === (snippets[0]?.length ?? learned.length) ? learned : alignedMean(snippets);
+    drawWaveform(waveCanvas, snippets, SNIPPET_BIN_MS, SNIPPET_PRE_MS, avg);
   }
 
   function renderState() {

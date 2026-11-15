@@ -133,6 +133,31 @@ export function fitSpan(points: TracePoint[], chosen: number, spans: number[]): 
 }
 
 /** Overlay of recent tick envelopes — shows the unlock / impulse / drop clicks. */
+/** Recent ticks lined up on their loudest click and averaged: a steady tick shape before the learned one. */
+export function alignedMean(snippets: number[][]): number[] | null {
+  if (snippets.length < 3) return null;
+  const n = snippets[0].length;
+  const norm = snippets.filter((s) => s.length === n).map((s) => {
+    const peak = Math.max(...s) || 1;
+    return { s: s.map((v) => v / peak), at: s.indexOf(peak) };
+  });
+  const ats = norm.map((x) => x.at).sort((a, b) => a - b);
+  const target = ats[ats.length >> 1];
+  const out = new Array(n).fill(0);
+  const cnt = new Array(n).fill(0);
+  for (const { s, at } of norm) {
+    const d = target - at;
+    for (let i = 0; i < n; i++) {
+      const j = i - d;
+      if (j >= 0 && j < n) {
+        out[i] += s[j];
+        cnt[i]++;
+      }
+    }
+  }
+  return out.map((v, i) => (cnt[i] ? v / cnt[i] : 0));
+}
+
 export function drawWaveform(canvas: HTMLCanvasElement, snippets: number[][], binMs: number, preMs: number, average: number[] | null = null): void {
   const { ctx, w, h } = prep(canvas);
   const pad = { l: 10, r: 10, t: 8, b: 20 };
