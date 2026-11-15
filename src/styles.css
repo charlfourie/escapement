@@ -491,3 +491,10 @@ canvas.wave { width: 100%; height: 150px; display: block; background: var(--bg);
 .ref-filters input[type=search] { max-width: 280px; width: 100%; }
 .ref-owned { color: var(--accent); font-size: 0.7rem; vertical-align: 2px; }
 .ref-specs { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+
+.ref-more { display: flex; justify-content: center; margin-top: 12px; }
+.ref-more:empty { display: none; }
+.link-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
+.link-list a { font-weight: 600; }
+.link-list p { margin: 2px 0 0; }
+.ref-table td:not(:first-child), .ref-table th { white-space: nowrap; }

@@ -19,7 +19,8 @@ export interface RefMovement {
   type: MovementType;
   /** Other names it goes by (branded versions, sub-variants). */
   aliases?: string[];
-  bph: number;
+  /** Null for tuning-fork and quartz movements, or where the source doesn't know. */
+  bph: number | null;
   /** Degrees; null where no source documents it. */
   liftAngle: number | null;
   jewels: number | null;
@@ -33,6 +34,18 @@ export interface RefMovement {
   coAxial?: boolean;
   notes?: string;
   source: string;
+  /** Extra facts for entries from Watch Movements Archive. */
+  archive?: {
+    years?: string;
+    country?: string;
+    escapement: 'lever' | 'cylinder' | 'pin' | 'fork' | '';
+    lignes?: string;
+    jewels?: string;
+    bphUnsure?: boolean;
+    hz?: string;
+    identification?: string;
+    contributor: string;
+  };
 }
 
 const CC = 'https://calibercorner.com/';
@@ -71,7 +84,6 @@ export const REFERENCE_MOVEMENTS: RefMovement[] = [
   { id: 'miyota-8245', caliber: '8245', maker: 'Miyota (Citizen)', type: 'automatic', aliases: ['8247'], bph: 21600, liftAngle: 49, jewels: 21, diameterMm: 26, heightMm: 5.67, powerReserveH: 40, basedOn: '8215 with small seconds', source: `${CC}miyota-caliber-8245/` },
   { id: 'miyota-9015', caliber: '9015', maker: 'Miyota (Citizen)', type: 'automatic', aliases: ['miyota 9015'], bph: 28800, liftAngle: 51, jewels: 24, diameterMm: 26, heightMm: 3.9, powerReserveH: 42, features: 'Date; hacking, hand-winding', notes: 'Introduced in 2009; Japan’s answer to the 2824. Spec −10 to +30 s/day.', source: `${CC}miyota-caliber-9015/` },
   { id: 'miyota-9039', caliber: '9039', maker: 'Miyota (Citizen)', type: 'automatic', bph: 28800, liftAngle: 51, jewels: 24, diameterMm: 26, heightMm: 3.9, powerReserveH: 42, basedOn: '9015 without date', source: `${CC}miyota-caliber-9039/` },
-  { id: 'citizen-8200', caliber: '8200', maker: 'Citizen', type: 'automatic', aliases: ['8200a', 'citizen 8200'], bph: 21600, liftAngle: null, jewels: 21, diameterMm: null, heightMm: null, powerReserveH: null, notes: 'Vintage Citizen automatic, from the same family as the Miyota 8215 (which is 49°). No published lift angle of its own.', source: 'https://watchrepairtalk.com/topic/20273-citizenmiyota-8200-lift-angle' },
 
   // ---- Rolex ----
   { id: 'rolex-3135', caliber: '3135', maker: 'Rolex', type: 'automatic', aliases: ['3136', '3155', '3156'], bph: 28800, liftAngle: 52, jewels: 31, diameterMm: 28.5, heightMm: 6, powerReserveH: 48, features: 'Quickset date; hacking', notes: 'From 1988; Submariner, Datejust and more. COSC.', source: `${CC}rolex-caliber-3135/` },
@@ -123,3 +135,146 @@ export function findReference(caliber: string): RefMovement | null {
 }
 
 export const referenceById = (id: string): RefMovement | undefined => REFERENCE_MOVEMENTS.find((m) => m.id === id);
+
+// ---------------------------------------------------------------------------
+// Watch Movements Archive (watch-movements-archive.com), from the UHRFORUM.de
+// community, used with the site admin's permission. Facts only, each entry
+// credited to its contributor and linked to its archive page. Thousands of
+// entries, so it's loaded on demand.
+
+import type { ArchiveRec } from './archive-types';
+
+export const ARCHIVE_URL = 'https://watch-movements-archive.com/';
+export const archivePageUrl = (slug: string) => `${ARCHIVE_URL}watch-movement/${slug}/`;
+const ARCHIVE_PREFIX = 'wma-';
+
+const SECONDS = { s: 'small seconds', c: 'centre seconds', j: 'jumping centre seconds' } as const;
+
+export function fromArchive(r: ArchiveRec): RefMovement {
+  const single = r.j && /^\d+$/.test(r.j) ? Number(r.j) : null;
+  const features = [r.sec && SECONDS[r.sec], r.dt && r.dt !== 'None' ? r.dt.toLowerCase() : '', r.f?.toLowerCase()].filter(Boolean).join(', ');
+  return {
+    id: ARCHIVE_PREFIX + r.s,
+    caliber: r.n,
+    maker: r.m,
+    type: r.t,
+    bph: r.b,
+    liftAngle: null,
+    jewels: single,
+    diameterMm: r.mm ?? null,
+    heightMm: null,
+    powerReserveH: r.pr ?? null,
+    features: features ? features[0].toUpperCase() + features.slice(1) : undefined,
+    aliases: r.n.includes('=') ? r.n.split(/\s*=\s*/).slice(1) : undefined,
+    source: archivePageUrl(r.s),
+    archive: {
+      years: r.y,
+      country: r.co,
+      escapement: r.e,
+      lignes: r.l,
+      jewels: r.j,
+      bphUnsure: !!r.bq,
+      hz: r.hz,
+      identification: r.id,
+      contributor: r.by,
+    },
+  };
+}
+
+let archive: RefMovement[] | null = null;
+let loading: Promise<RefMovement[]> | null = null;
+let fullIndex = new Map<string, RefMovement[]>();
+let caliberIndex = new Map<string, RefMovement[]>();
+
+/** Match key that keeps maker names: "Citizen 8200" → "citizen8200". */
+const fullKey = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]/g, '');
+const push = (map: Map<string, RefMovement[]>, k: string, m: RefMovement) => {
+  if (k.length < 2) return;
+  const list = map.get(k);
+  if (!list) map.set(k, [m]);
+  else if (!list.includes(m)) list.push(m);
+};
+
+/** For tests and the importer: index a given set of records. */
+export function setArchive(recs: ArchiveRec[]): RefMovement[] {
+  archive = recs.map(fromArchive);
+  fullIndex = new Map();
+  caliberIndex = new Map();
+  recs.forEach((r, i) => {
+    const m = archive![i];
+    // Every name in the title: "Bulova 11DO = Caravelle 11DO = Citizen 0240", "SII NH35A / TMI NH35A".
+    for (const seg of r.n.split(/\s*[=\/]\s*/)) if (/\d/.test(seg)) push(fullIndex, fullKey(seg), m);
+    push(fullIndex, fullKey(r.n), m);
+    if (r.c && !r.c.includes('=')) {
+      push(caliberIndex, fullKey(r.c), m);
+      for (const maker of r.m.split(/\s*\/\s*/)) push(fullIndex, fullKey(maker + r.c), m);
+    }
+  });
+  return archive;
+}
+
+/** Load the archive (once). */
+export function loadArchive(): Promise<RefMovement[]> {
+  if (archive) return Promise.resolve(archive);
+  loading ??= import('./archive.json').then((mod) => setArchive((mod.default ?? mod) as ArchiveRec[]));
+  return loading;
+}
+
+export const archiveLoaded = () => archive;
+
+function findInArchive(caliber: string, brand = ''): RefMovement | null {
+  if (!archive) return null;
+  const k = fullKey(caliber);
+  if (k.length < 2) return null;
+  const pick = (list: RefMovement[] | undefined) => {
+    if (!list?.length) return null;
+    if (list.length === 1) return list[0];
+    const b = fullKey(brand);
+    const byBrand = b ? list.filter((m) => fullKey(m.maker).includes(b) || fullKey(m.caliber).startsWith(b)) : [];
+    return byBrand.length === 1 ? byBrand[0] : null;
+  };
+  return (
+    pick(fullIndex.get(k)) ??
+    (brand ? pick(fullIndex.get(fullKey(brand) + k)) : null) ??
+    // A bare caliber number ("8200") only if it's unambiguous, or the brand settles it.
+    (/\d/.test(k) && k.length >= 3 ? pick(caliberIndex.get(k)) : null)
+  );
+}
+
+/**
+ * The best reference for a caliber: the sourced library first, then the
+ * archive if it's loaded. Pass the watch's brand to settle bare numbers.
+ */
+export function findMovement(caliber: string, brand = ''): RefMovement | null {
+  return findReference(caliber) ?? findInArchive(caliber, brand);
+}
+
+/** As findMovement, loading the archive first if needed. */
+export async function findMovementAsync(caliber: string, brand = ''): Promise<RefMovement | null> {
+  const ref = findReference(caliber);
+  if (ref) return ref;
+  await loadArchive();
+  return findInArchive(caliber, brand);
+}
+
+export async function referenceByIdAsync(id: string): Promise<RefMovement | undefined> {
+  if (!id.startsWith(ARCHIVE_PREFIX)) return referenceById(id);
+  return (await loadArchive()).find((m) => m.id === id);
+}
+
+/** Display name: archive titles already include the maker. */
+export const refName = (m: RefMovement) => (m.archive ? m.caliber : `${m.maker} ${m.caliber}`);
+
+/** Notes on what a timegrapher can and can't read for this escapement. */
+export function escapementNote(m: RefMovement): string {
+  switch (m.archive?.escapement) {
+    case 'fork':
+      return 'Tuning-fork movement: it hums rather than ticks, so a timegrapher can’t read it. Use time checks.';
+    case 'cylinder':
+      return 'Cylinder escapement: rate reads normally, but amplitude and beat error don’t mean the same as on a lever escapement.';
+    case 'pin':
+      return 'Pin-lever escapement: rate and beat error read normally; amplitude is rough, since pin-lever ticks are less crisp.';
+    default:
+      return m.type === 'quartz' ? 'Quartz: a timegrapher can’t read it. Use time checks.' : '';
+  }
+}

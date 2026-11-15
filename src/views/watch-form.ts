@@ -5,7 +5,7 @@ import { fmtBph, fmtHz } from '../util/format';
 import { identifyPanel } from './identify-panel';
 import { faceDesigner } from './face-designer';
 import { watchArt } from './watch-art';
-import { findReference, REFERENCE_MOVEMENTS } from '../data/movements';
+import { findMovement, findMovementAsync, loadArchive, REFERENCE_MOVEMENTS, escapementNote, refName } from '../data/movements';
 
 export function watchFormView(root: HTMLElement, id: string | null): void {
   void (async () => {
@@ -131,31 +131,49 @@ export function watchFormView(root: HTMLElement, id: string | null): void {
     // fills in the beat rate and lift angle (only where they're still unset).
     const refHint = h('small', { class: 'muted' });
     const showRef = () => {
-      const ref = findReference(w.caliber);
+      const ref = findMovement(w.caliber, w.brand);
+      const bits = ref
+        ? [
+            ref.bph ? `${fmtBph(ref.bph)} bph${ref.archive?.bphUnsure ? ' (best guess)' : ''}` : '',
+            ref.liftAngle ? `lift angle ${ref.liftAngle}°` : '',
+            ref.coAxial ? 'co-axial' : '',
+            ref.archive?.years ?? '',
+          ].filter(Boolean)
+        : [];
+      const note = ref ? escapementNote(ref) : '';
       refHint.replaceChildren(
         ref
-          ? h('span', null, `In the reference library: ${ref.maker} ${ref.caliber}, ${fmtBph(ref.bph)} bph${ref.liftAngle ? `, lift angle ${ref.liftAngle}°` : ''}${ref.coAxial ? ', co-axial' : ''}. `, h('a', { href: `#/movements/${ref.id}` }, 'Details'))
+          ? h(
+              'span',
+              null,
+              `${ref.archive ? 'In Watch Movements Archive' : 'In the reference library'}: ${refName(ref)}${bits.length ? `, ${bits.join(', ')}` : ''}. `,
+              note ? `${note} ` : '',
+              h('a', { href: `#/movements/${ref.id}` }, 'Details'),
+            )
           : '',
       );
     };
-    const applyRef = () => {
-      const ref = findReference(w.caliber);
+    // The archive loads on demand; show its match once it's in.
+    if (w.caliber && !findMovement(w.caliber, w.brand)) void loadArchive().then(showRef);
+    const applyRef = async () => {
+      const ref = await findMovementAsync(w.caliber, w.brand);
+      showRef();
       if (!ref) return;
       const filled: string[] = [];
       if (!w.movementType) {
         w.movementType = ref.type;
         filled.push('movement type');
       }
-      if (!w.bph) {
+      if (!w.bph && ref.bph) {
         w.bph = ref.bph;
-        filled.push('beat rate');
+        filled.push(ref.archive?.bphUnsure ? 'beat rate (a best guess)' : 'beat rate');
       }
       if (ref.liftAngle && (w.liftAngle === 52 || !w.liftAngle) && w.liftAngle !== ref.liftAngle) {
         w.liftAngle = ref.liftAngle;
         filled.push('lift angle');
       }
       if (filled.length) {
-        toast(`Filled ${filled.join(', ')} from the reference for ${ref.caliber}`);
+        toast(`Filled ${filled.join(', ')} from ${ref.archive ? 'Watch Movements Archive' : 'the reference'} for ${ref.caliber}`);
         renderForm();
       }
     };
@@ -177,7 +195,7 @@ export function watchFormView(root: HTMLElement, id: string | null): void {
         { class: 'field' },
         h('span', null, 'Caliber'),
         input,
-        h('datalist', { id: 'ref-calibers' }, REFERENCE_MOVEMENTS.map((m) => h('option', { value: m.caliber }, `${m.maker} · ${fmtBph(m.bph)} bph`))),
+        h('datalist', { id: 'ref-calibers' }, REFERENCE_MOVEMENTS.map((m) => h('option', { value: m.caliber }, `${m.maker} · ${fmtBph(m.bph ?? 0)} bph`))),
         refHint,
       );
     };

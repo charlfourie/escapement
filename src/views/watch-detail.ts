@@ -6,7 +6,7 @@ import { historyChart } from '../ui/history-chart';
 import { h, toast } from '../util/dom';
 import { fmtBph, fmtDate, fmtDateTime, fmtDuration, fmtMs, fmtRate, rateGrade, ranfftUrl } from '../util/format';
 import { watchThumb } from './watches';
-import { findReference } from '../data/movements';
+import { escapementNote, findMovement } from '../data/movements';
 
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
@@ -34,8 +34,10 @@ export function watchDetailView(root: HTMLElement, id: string): void {
     ).filter(([, v]) => v);
 
     // The caliber's documented lift angle differs from the watch's: amplitude would be off.
-    const ref = findReference(w.caliber);
+    const ref = findMovement(w.caliber, w.brand);
     const liftHint = () => {
+      const note = ref ? escapementNote(ref) : '';
+      if (note && mech) return h('p', { class: 'small warn-text lift-hint' }, note);
       if (!mech || !ref?.liftAngle || ref.liftAngle === w.liftAngle) return '';
       const el = h(
         'p',

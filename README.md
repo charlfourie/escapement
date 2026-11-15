@@ -27,7 +27,7 @@ No app to install and no account needed. Your data stays in your browser, with o
 - **Quartz watches and time checks:** every watch has a movement type. A timegrapher can't read quartz (or Spring Drive), so those watches get **time checks** instead: tap as the seconds hand hits 12 and Escapement compares it with internet time from the server. A few checks since you last set the watch give its drift in s/month. Mechanical watches get time checks too, which show how they keep time on the wrist.
 - **Acoustic quartz test:** a quartz watch's seconds hand is stepped by a tiny motor, and each step clicks. Escapement times those clicks for 5–20 minutes, checks the computer's sound-card clock against internet time as it goes (a sound card can be off by 25–130 s a month, more than the watch), and reports the rate in s/month with an honest ±. A low battery or low solar charge shows up as 2-second steps and is flagged. A one-off 30-minute **calibration** pins the sound card down for every later test.
 - **Battery log:** record battery (or rechargeable cell) changes on quartz, solar and kinetic watches; cards warn when a battery is getting old or a test heard 2-second steps.
-- **Movement library:** one entry per caliber, built as you add watches: specs (maker, beat rate, lift angle, jewels, size) plus your own timing results across every watch with that movement. Alongside it sits a **reference library** of about 40 common calibers (ETA, Sellita, Seiko, Miyota, Rolex, Omega and more), each with its beat rate, lift angle, jewels, size and power reserve and a link to its source. Type a known caliber in the watch form ("NH35", "ETA 2824", "Cal. 7S26") and its beat rate, lift angle and movement type fill in; a watch whose lift angle disagrees with its caliber's documented one gets a nudge, since that error skews amplitude by about 6° per degree. Lift angles are only listed where a source documents them, never guessed. Every entry also links to [Ranfft DB](https://ranfft.org), the community movement encyclopedia; Escapement doesn't copy Ranfft's data.
+- **Movement library:** one entry per caliber, built as you add watches: specs (maker, beat rate, lift angle, jewels, size) plus your own timing results across every watch with that movement. Alongside it sits a **reference library** of about 3,000 calibers. About 40 common modern ones (ETA, Sellita, Seiko, Miyota, Rolex, Omega and more) are Escapement's own, each with a cited source and the lift angle where one is documented. The rest come from [Watch Movements Archive](https://watch-movements-archive.com/), a database built by the UHRFORUM.de community and used with its admin's permission: beat rate, jewels, size, power reserve, production years, escapement and identification tips, many of them vintage Swiss and German movements. Every archive entry credits its contributor and links to its archive page for photos and full notes. Type a caliber in the watch form ("NH35", "ETA 2824", "Citizen 8200"; the brand settles bare numbers) and its beat rate, movement type and lift angle fill in; beat rates the archive could only estimate are marked. A watch whose lift angle disagrees with its caliber's documented one gets a nudge, since that error skews amplitude by about 6° per degree, and cylinder, pin-lever and tuning-fork movements get a note on what a timegrapher can read. Lift angles are only listed where a source documents them, never guessed. **Links & sources** (in the footer) lists every site the data is based on. Each movement also links to [Ranfft DB](https://ranfft.org), the community movement encyclopedia; Escapement doesn't copy Ranfft's data.
 - **Simulated watch:** try everything without a watch. Set rate, beat error, amplitude and noise, and listen to it tick.
 
 ## Online collection (optional)
@@ -117,13 +117,13 @@ src/
   audio/      detector (worklet-safe), simulated watch, worklet, engine
   analysis/   beat-rate detection, fit, trace
   ui/         canvas trace + waveform, SVG history chart
-  data/       reference movements (sourced specs, caliber matching)
+  data/       reference movements (sourced specs, Watch Movements Archive import, caliber matching)
   views/      measure, watches, watch detail/form, movements, data
   sync/       online sync engine and its UI
   lab/        Pickup Lab page
   db.ts       Dexie schema
 api/          Vercel Functions: GitHub sign-in, sync, photos (private Blob)
-scripts/      offline clip analyser
+scripts/      offline clip analyser; Watch Movements Archive importer
 tests/        detector, analysis, API and sync tests
 ```
 
@@ -169,3 +169,5 @@ It prints what each auto-tune detector heard, which one locked, and the resultin
 ## Licence
 
 MIT © Charl Fourie
+
+The movement facts in `src/data/archive.json` come from [Watch Movements Archive](https://watch-movements-archive.com/) and its UHRFORUM.de contributors, used with the site admin's permission. They aren't covered by the MIT licence; ask the archive before reusing them. Escapement's own reference entries in `src/data/movements.ts` cite their sources.

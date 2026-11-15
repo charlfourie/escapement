@@ -2,7 +2,7 @@ import { STANDARD_BPH } from '../analysis/analyze';
 import { db, movementId, type Measurement, type Movement, type Watch } from '../db';
 import { h, toast } from '../util/dom';
 import { fmtBph, fmtDate, fmtRate, rateGrade, ranfftUrl } from '../util/format';
-import { findReference, REFERENCE_MOVEMENTS, referenceById, type RefMovement } from '../data/movements';
+import { ARCHIVE_URL, escapementNote, findMovement, loadArchive, REFERENCE_MOVEMENTS, referenceByIdAsync, type RefMovement } from '../data/movements';
 import { MOVEMENT_TYPES, upsertMovement } from '../db';
 
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
@@ -47,7 +47,7 @@ export function movementsView(root: HTMLElement): void {
       'div',
       { class: 'page' },
       h('header', { class: 'page-head' }, h('h1', null, 'Movements')),
-      h('p', { class: 'muted' }, 'Your movements, built from the calibers of your watches with your timing results across every watch that uses each one. Below them, a reference library of common calibers with the beat rate and lift angle a timegrapher needs.'),
+      h('p', { class: 'muted' }, 'Your movements, built from the calibers of your watches with your timing results across every watch that uses each one. Below them, a reference library of thousands of calibers: beat rate, lift angle where it’s documented, and more.'),
       host,
       refHost,
     ),
@@ -115,80 +115,114 @@ export function movementsView(root: HTMLElement): void {
   })();
 }
 
-/** Searchable table of the reference movements. */
+/** Searchable table: the sourced library plus Watch Movements Archive. */
 function referenceLibrary(watches: Watch[]): HTMLElement {
-  const makers = [...new Set(REFERENCE_MOVEMENTS.map((m) => m.maker.split(/[ (/]/)[0]))];
-  let maker = '';
+  type Source = '' | 'lib' | 'wma';
+  let source: Source = '';
   let query = '';
+  let shown = PAGE;
+  let all: RefMovement[] = REFERENCE_MOVEMENTS;
   const tbody = h('tbody');
   const count = h('span', { class: 'muted small' });
-  const owned = new Set(watches.map((w) => findReference(w.caliber)?.id).filter(Boolean));
+  const more = h('div', { class: 'ref-more' });
+  const ownedIds = () => new Set(watches.map((w) => findMovement(w.caliber, w.brand)?.id).filter(Boolean));
+  let owned = ownedIds();
+
+  const matches = (m: RefMovement, q: string) =>
+    [m.caliber, m.maker, ...(m.aliases ?? []), m.basedOn ?? ''].some((x) => x.toLowerCase().includes(q)) || (q.length > 2 && fullText(m).includes(q));
 
   const render = () => {
     const q = query.trim().toLowerCase();
-    const rows = REFERENCE_MOVEMENTS.filter(
-      (m) => (!maker || m.maker.startsWith(maker)) && (!q || [m.caliber, m.maker, ...(m.aliases ?? []), m.basedOn ?? ''].some((x) => x.toLowerCase().includes(q))),
-    );
-    count.textContent = `${rows.length} of ${REFERENCE_MOVEMENTS.length}`;
+    const rows = all.filter((m) => (!source || (source === 'wma') === !!m.archive) && (!q || matches(m, q)));
+    count.textContent = `${rows.length.toLocaleString()} of ${all.length.toLocaleString()}`;
     tbody.replaceChildren(
-      ...rows.map((m) =>
+      ...rows.slice(0, shown).map((m) =>
         h(
           'tr',
           null,
-          h('td', null, h('a', { href: `#/movements/${m.id}` }, h('strong', null, m.caliber)), owned.has(m.id) ? h('span', { class: 'ref-owned', title: 'One of your watches has this movement' }, ' ●') : ''),
-          h('td', { class: 'hide-sm' }, m.maker),
+          h(
+            'td',
+            null,
+            h('a', { href: `#/movements/${m.id}` }, h('strong', null, m.archive ? m.caliber : `${m.maker.split(/[ (]/)[0]} ${m.caliber}`)),
+            owned.has(m.id) ? h('span', { class: 'ref-owned', title: 'One of your watches has this movement' }, ' ●') : '',
+          ),
           h('td', { class: 'hide-sm' }, MOVEMENT_TYPES[m.type]),
-          h('td', { class: 'num' }, fmtBph(m.bph)),
+          h('td', { class: 'num' }, m.bph ? `${fmtBph(m.bph)}${m.archive?.bphUnsure ? '?' : ''}` : '—'),
           h('td', { class: 'num' }, m.liftAngle ? `${m.liftAngle}°${m.coAxial ? ' *' : ''}` : '—'),
-          h('td', { class: 'num hide-sm' }, m.jewels ?? '—'),
+          h('td', { class: 'num hide-sm' }, m.archive?.jewels ?? m.jewels ?? '—'),
           h('td', { class: 'num hide-sm' }, m.powerReserveH ? `${m.powerReserveH} h` : '—'),
+          h('td', { class: 'hide-sm muted' }, m.archive?.years ?? ''),
         ),
       ),
     );
+    more.replaceChildren(
+      rows.length > shown
+        ? h('button', { type: 'button', class: 'btn small', onclick: () => ((shown += PAGE * 2), render()) }, `Show more (${(rows.length - shown).toLocaleString()} left)`)
+        : '',
+    );
   };
 
-  const chips = h(
-    'div',
-    { class: 'fd-chips' },
-    [['', 'All'], ...makers.map((x) => [x, x])].map(([v, label]) =>
-      h(
-        'button',
-        {
-          type: 'button',
-          class: `fd-chip${v === maker ? ' active' : ''}`,
-          onclick: (e: Event) => {
-            maker = v;
-            chips.querySelectorAll('.fd-chip').forEach((c) => c.classList.toggle('active', c === e.currentTarget));
-            render();
-          },
+  const chip = (v: Source, label: string) =>
+    h(
+      'button',
+      {
+        type: 'button',
+        class: `fd-chip${v === source ? ' active' : ''}`,
+        onclick: (e: Event) => {
+          source = v;
+          shown = PAGE;
+          chips.querySelectorAll('.fd-chip').forEach((c) => c.classList.toggle('active', c === e.currentTarget));
+          render();
         },
-        label,
-      ),
-    ),
-  );
+      },
+      label,
+    );
+  const chips = h('div', { class: 'fd-chips' }, chip('', 'All'), chip('lib', 'With lift angles'), chip('wma', 'Watch Movements Archive'));
   render();
+  // The archive loads on demand.
+  void loadArchive().then((arc) => {
+    all = [...REFERENCE_MOVEMENTS, ...arc];
+    owned = ownedIds();
+    render();
+  });
   return h(
     'section',
     { class: 'panel' },
     h('header', { class: 'panel-head' }, h('h2', null, 'Reference library'), count),
-    h('p', { class: 'muted small' }, 'Common calibers and their specs, each with its source. A lift angle is only listed where it’s documented; a wrong one skews amplitude by about 6° per degree. * Co-axial: rate reads normally, amplitude only roughly.'),
-    h('div', { class: 'ref-filters' }, h('input', { type: 'search', placeholder: 'Search, e.g. 2824, NH35, Valjoux', oninput: (e: Event) => ((query = (e.target as HTMLInputElement).value), render()) }), chips),
+    h(
+      'p',
+      { class: 'muted small' },
+      'Calibers and their specs. The first entries are Escapement’s own, each sourced, with lift angles where they’re documented (a wrong lift angle skews amplitude by about 6° per degree; * co-axial: amplitude only rough). The rest come from ',
+      h('a', { href: ARCHIVE_URL, target: '_blank', rel: 'noopener' }, 'Watch Movements Archive'),
+      ', a database by the UHRFORUM.de community, used with permission. A ? marks a beat rate the archive could only estimate. ',
+      h('a', { href: '#/links' }, 'Links & sources'),
+    ),
+    h('div', { class: 'ref-filters' }, h('input', { type: 'search', placeholder: 'Search, e.g. 2824, NH35, Unitas, chronograph', oninput: (e: Event) => ((query = (e.target as HTMLInputElement).value), (shown = PAGE), render()) }), chips),
     h(
       'div',
       { class: 'table-wrap' },
       h(
         'table',
-        { class: 'table' },
-        h('thead', null, h('tr', null, h('th', null, 'Caliber'), h('th', { class: 'hide-sm' }, 'Maker'), h('th', { class: 'hide-sm' }, 'Type'), h('th', { class: 'num' }, 'bph'), h('th', { class: 'num' }, 'Lift angle'), h('th', { class: 'num hide-sm' }, 'Jewels'), h('th', { class: 'num hide-sm' }, 'Reserve'))),
+        { class: 'table ref-table' },
+        h('thead', null, h('tr', null, h('th', null, 'Caliber'), h('th', { class: 'hide-sm' }, 'Type'), h('th', { class: 'num' }, 'bph'), h('th', { class: 'num' }, 'Lift angle'), h('th', { class: 'num hide-sm' }, 'Jewels'), h('th', { class: 'num hide-sm' }, 'Reserve'), h('th', { class: 'hide-sm' }, 'Made'))),
         tbody,
       ),
     ),
+    more,
   );
 }
+
+const PAGE = 60;
+const ESCAPEMENTS = { lever: 'Lever', cylinder: 'Cylinder', pin: 'Pin lever', fork: 'Tuning fork', '': '' } as const;
+const fullText = (m: RefMovement) => [m.features, m.archive?.country, m.archive?.years, m.archive?.escapement && ESCAPEMENTS[m.archive.escapement]].join(' ').toLowerCase();
 
 /** Specs card for a reference movement. */
 function referenceCard(r: RefMovement, title = 'Reference specs'): HTMLElement {
   const row = (k: string, v: string | number | null | undefined) => (v === null || v === undefined || v === '' ? '' : h('div', null, h('dt', null, k), h('dd', null, String(v))));
+  const a = r.archive;
+  const beat = r.bph ? `${fmtBph(r.bph)} bph (${+(r.bph / 7200).toFixed(2)} Hz)${a?.bphUnsure ? ', estimated' : ''}` : a?.hz ? `${a.hz} (not a ticking escapement)` : 'Unknown';
+  const size = a?.lignes ? `${a.lignes}${r.diameterMm ? ` (${r.diameterMm} mm)` : ''}` : r.diameterMm ? `${r.diameterMm} mm` : null;
+  const note = escapementNote(r);
   return h(
     'section',
     { class: 'panel' },
@@ -198,19 +232,33 @@ function referenceCard(r: RefMovement, title = 'Reference specs'): HTMLElement {
       { class: 'specs ref-specs' },
       row('Maker', r.maker),
       row('Type', MOVEMENT_TYPES[r.type]),
-      row('Beat rate', `${fmtBph(r.bph)} bph (${r.bph / 7200} Hz)`),
+      row('Beat rate', beat),
       row('Lift angle', r.liftAngle ? `${r.liftAngle}°` : 'Not documented'),
-      row('Jewels', r.jewels),
-      row('Diameter', r.diameterMm ? `${r.diameterMm} mm` : null),
+      row('Escapement', a?.escapement ? ESCAPEMENTS[a.escapement] : null),
+      row('Jewels', a?.jewels ?? r.jewels),
+      row(a?.lignes ? 'Size' : 'Diameter', size),
       row('Height', r.heightMm ? `${r.heightMm} mm` : null),
       row('Power reserve', r.powerReserveH ? `${r.powerReserveH} hours` : null),
+      row('Made', a?.years),
+      row('Country', a?.country),
       row('Based on', r.basedOn),
       row('Features', r.features),
-      row('Also known as', r.aliases?.length ? r.aliases.join(', ').toUpperCase() : null),
+      row('Also known as', r.aliases?.length ? (a ? r.aliases.join(', ') : r.aliases.join(', ').toUpperCase()) : null),
     ),
     r.notes && h('p', { class: 'small' }, r.notes),
+    a?.identification && h('p', { class: 'small' }, h('strong', null, 'Identifying it: '), a.identification),
     r.coAxial && h('p', { class: 'small warn-text' }, 'Co-axial escapement: Escapement reads its rate and beat error normally, but its amplitude only roughly.'),
-    h('p', { class: 'small muted' }, 'Source: ', h('a', { href: r.source, target: '_blank', rel: 'noopener' }, new URL(r.source).hostname.replace(/^www\./, '')), ' · ', h('a', { href: ranfftUrl(r.maker.split(/[ (/]/)[0], r.caliber), target: '_blank', rel: 'noopener' }, 'Ranfft DB ↗')),
+    note && h('p', { class: 'small warn-text' }, note),
+    !r.liftAngle && r.bph && r.type !== 'quartz' && h('p', { class: 'small muted' }, 'No lift angle on record: amplitude uses the watch’s own setting (52° by default). If you find the documented figure, set it on the watch.'),
+    a
+      ? h(
+          'p',
+          { class: 'small muted' },
+          'From ',
+          h('a', { href: r.source, target: '_blank', rel: 'noopener' }, 'Watch Movements Archive ↗'),
+          `, contributed by ${a.contributor === 'Anonymous' ? 'an anonymous member' : a.contributor} of UHRFORUM.de. Photos and full notes are on the archive page.`,
+        )
+      : h('p', { class: 'small muted' }, 'Source: ', h('a', { href: r.source, target: '_blank', rel: 'noopener' }, new URL(r.source).hostname.replace(/^www\./, '')), ' · ', h('a', { href: ranfftUrl(r.maker.split(/[ (/]/)[0], r.caliber), target: '_blank', rel: 'noopener' }, 'Ranfft DB ↗')),
   );
 }
 
@@ -219,18 +267,19 @@ export function movementDetailView(root: HTMLElement, rawId: string): void {
   void (async () => {
     const m = await db.movements.get(id);
     if (!m) {
-      const r = referenceById(id);
+      const r = await referenceByIdAsync(id);
       if (!r) {
         root.append(h('div', { class: 'page' }, h('p', null, 'That movement isn’t in your library. ', h('a', { href: '#/movements' }, 'Back to movements'))));
         return;
       }
-      const watches = (await db.watches.toArray()).filter((w) => findReference(w.caliber)?.id === r.id);
+      await loadArchive();
+      const watches = (await db.watches.toArray()).filter((w) => findMovement(w.caliber, w.brand)?.id === r.id);
       root.append(
         h(
           'div',
           { class: 'page narrow' },
           h('a', { class: 'back', href: '#/movements' }, '← All movements'),
-          h('header', { class: 'page-head' }, h('div', null, h('h1', null, `Caliber ${r.caliber}`), h('p', { class: 'muted' }, r.maker))),
+          h('header', { class: 'page-head' }, h('div', null, h('h1', null, r.archive ? r.caliber : `Caliber ${r.caliber}`), h('p', { class: 'muted' }, r.archive ? [r.archive.country, r.archive.years].filter(Boolean).join(' · ') : r.maker))),
           referenceCard(r, 'Specs'),
           watches.length
             ? h('section', { class: 'panel' }, h('h2', null, 'Your watches with this movement'), h('ul', null, watches.map((w) => h('li', null, h('a', { href: `#/watches/${w.id}` }, w.name)))))
@@ -243,7 +292,7 @@ export function movementDetailView(root: HTMLElement, rawId: string): void {
               {
                 class: 'btn',
                 onclick: async () => {
-                  const mv = await upsertMovement(r.caliber, {});
+                  const mv = await upsertMovement(r.archive ? r.caliber : r.caliber, {});
                   if (mv) {
                     toast(`Added ${r.caliber} to your movements`);
                     location.hash = `#/movements/${encodeURIComponent(mv.id)}`;
@@ -257,7 +306,8 @@ export function movementDetailView(root: HTMLElement, rawId: string): void {
       );
       return;
     }
-    const ref = findReference(m.caliber);
+    await loadArchive();
+    const ref = findMovement(m.caliber, m.maker);
     const { stats } = await loadAll();
     const s = stats.get(id)!;
 

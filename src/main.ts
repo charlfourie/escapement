@@ -9,6 +9,8 @@ import { movementDetailView, movementsView } from './views/movements';
 import { quartzTestView } from './views/quartz-test';
 import { logView } from './views/log';
 import { welcomeView, WELCOMED_KEY } from './views/welcome';
+import { linksView } from './views/links';
+import { loadArchive } from './data/movements';
 import { initSync } from './sync/sync';
 import { syncChip } from './sync/ui';
 
@@ -30,6 +32,7 @@ const routes: Route[] = [
   [/^\/movements$/, (r) => movementsView(r), 'movements'],
   [/^\/log$/, (r) => logView(r), 'log'],
   [/^\/welcome$/, (r) => welcomeView(r), 'welcome'],
+  [/^\/links$/, (r) => linksView(r), 'links'],
   [/^\/data$/, (r) => dataView(r), 'data'],
 ];
 
@@ -71,6 +74,7 @@ document.getElementById('app')!.append(
       'span',
       { class: 'footer-links' },
       h('a', { href: '#/welcome' }, 'About'),
+      h('a', { href: '#/links' }, 'Links & sources'),
       h('a', { href: '/lab' }, 'Pickup Lab'),
       REPO_URL && h('a', { href: REPO_URL, target: '_blank', rel: 'noopener' }, 'Source on GitHub'),
     ),
@@ -122,3 +126,7 @@ window.addEventListener('escapement:synced', () => {
   route();
   window.scrollTo(0, y);
 });
+
+// Movement lookups use the archive too; fetch it once the page is idle.
+const idle = (window as { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 2000));
+idle(() => void loadArchive());

@@ -1,7 +1,7 @@
 import Dexie, { type EntityTable } from 'dexie';
 import type { TracePoint } from './analysis/analyze';
 import type { FaceDesign } from './views/watch-art';
-import { findReference } from './data/movements';
+import { findMovement } from './data/movements';
 
 export type Position = 'DU' | 'DD' | 'CU' | 'CD' | 'CL' | 'CR';
 export const POSITIONS: Record<Position, string> = {
@@ -134,7 +134,7 @@ export async function upsertMovement(caliber: string, specs: MovementSpecs = {})
   const m: Movement = existing ?? { id, caliber: caliber.trim(), maker: '', bph: null, liftAngle: null, jewels: null, size: '', notes: '', createdAt: now, updatedAt: now };
   let changed = !existing;
   // Known caliber: the reference library fills what's still empty.
-  const ref = findReference(caliber);
+  const ref = findMovement(caliber, specs.maker ?? '');
   if (ref) {
     specs = {
       maker: ref.maker,
