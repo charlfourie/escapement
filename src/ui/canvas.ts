@@ -92,7 +92,8 @@ export function drawTrace(canvas: HTMLCanvasElement, points: TracePoint[], opts:
     if (p.t < tMin) continue;
     const wrapped = ((((p.dev + span / 2) % span) + span) % span) - span / 2;
     const x = pad.l + ((p.t - x0) / xSpan) * pw;
-    const y = pad.t + ph / 2 - (wrapped / span) * ph;
+    // dev is how late a tick is; a gaining watch ticks early, and timegraphers draw that sloping up.
+    const y = pad.t + ph / 2 + (wrapped / span) * ph;
     ctx.fillStyle = p.odd ? toc : tic;
     ctx.fillRect(x - r, y - r, r * 2, r * 2);
   }

@@ -54,6 +54,7 @@ function years(v: string): string | undefined {
   v = v.replace(/\s*\((?:see [^)]*|[A-Z][^)]*\d[^)]*)\)/gi, '');
   const around = v.match(/^(?:unknown[,.]\s*)?(?:probably|perhaps|possibly|presumably|maybe) (?:around |from approx\. |approx\. )?(.+)$/i);
   let y = around ? `c. ${around[1]}` : v.replace(/^unknown,\s*/i, '').replace(/^approx\.\s*/i, 'c. ');
+  y = y.replace(/^c\. in the /i, '').replace(/^(?:c\. )?(?:from |around )+(?:approx\. )?/i, (m) => (/from/i.test(m) ? 'From ' : 'c. '));
   // Long notes ("Perhaps around 1920, certainly before 1936, because…") → the first year.
   if (y.length > 24) {
     const m = y.match(/\b(1[6-9]\d\d|20[0-2]\d)\b(\+|s)?/);

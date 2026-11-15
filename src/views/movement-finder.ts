@@ -79,7 +79,7 @@ export function movementFinder(w: Watch, ms: Measurement[], onChosen: () => void
       return h(
         'div',
         null,
-        h('input', { type: 'search', class: 'finder-search', placeholder: 'What’s printed on the movement, e.g. ETA 2824, AS 1700, FHF', oninput: (e: Event) => run((e.target as HTMLInputElement).value) }),
+        h('input', { type: 'search', class: 'finder-search', placeholder: 'e.g. ETA 2824, AS 1700, Unitas', oninput: (e: Event) => run((e.target as HTMLInputElement).value) }),
         note,
         list,
       );

@@ -28,6 +28,7 @@ describe('archive importer', () => {
     expect(convert(raw('Omega 39.5', { 'Size in French Lignes': "39,5 mm (17 1/2''')" }))!.mm).toBe(39.5);
     expect(convert(raw('Felsa 1560', { 'Size in French Lignes': '1560' }))!.mm).toBeUndefined();
     expect(convert(raw('AS 6', { 'Production Period': 'Presumably around 1928 (see remarks)' }))!.y).toBe('c. 1928');
+    expect(convert(raw('AS 7', { 'Production Period': 'Probably in the 1980s' }))!.y).toBe('1980s');
     expect(convert(raw('AS 3', { 'Size in French Lignes': "6 3/4 x 8'''" }))!.mm).toBe(18);
   });
 });

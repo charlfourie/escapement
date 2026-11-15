@@ -16,7 +16,7 @@ export const STANDARD_BPH = [14400, 18000, 19800, 21600, 25200, 28800, 36000] as
 export interface TracePoint {
   /** Seconds since the first accepted tick. */
   t: number;
-  /** Deviation from the nominal beat grid, ms. Slope of this line = rate. */
+  /** How late the tick is against the nominal beat grid, ms (early = negative). Its slope is −rate; the trace is drawn inverted so gaining slopes up. */
   dev: number;
   odd: boolean;
 }
