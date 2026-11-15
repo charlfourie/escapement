@@ -346,6 +346,35 @@ canvas.wave { width: 100%; height: 150px; display: block; background: var(--bg);
 
 /* ---------- responsive ---------- */
 .show-sm { display: none; }
+
+/* ---------- welcome ---------- */
+.welcome { max-width: 1080px; }
+.welcome-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 32px; align-items: center; padding: 24px 0 40px; }
+.welcome-hero h1 { font-size: clamp(2.5rem, 6vw, 4.4rem); line-height: 1.02; letter-spacing: -0.04em; font-weight: 750; margin: 0 0 18px; }
+.welcome-lede { font-size: 1.12rem; line-height: 1.6; color: color-mix(in srgb, var(--text) 82%, var(--muted)); max-width: 32em; margin: 0 0 22px; }
+.welcome-hero .actions { margin-bottom: 14px; }
+.welcome-hero-art { width: 100%; height: auto; display: block; }
+.welcome-h2 { font-size: 1.35rem; letter-spacing: -0.02em; margin: 40px 0 16px; padding-top: 28px; border-top: 1px solid var(--line); }
+.welcome-steps { list-style: none; counter-reset: step; display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; padding: 0; margin: 0; }
+.welcome-steps li { counter-increment: step; position: relative; }
+.welcome-steps li::before { content: counter(step); position: absolute; top: 0; left: 0; font: 600 0.85rem var(--mono); color: var(--tic); }
+.welcome-steps .welcome-mini { margin-left: 22px; }
+.welcome-mini { width: 120px; height: 80px; display: block; margin-bottom: 10px; }
+.welcome h3 { font-size: 1.02rem; margin: 0 0 6px; }
+.welcome-steps p, .welcome-feature p { color: var(--muted); line-height: 1.55; margin: 0; max-width: 34em; }
+.welcome-features { display: flex; flex-direction: column; }
+.welcome-feature { display: grid; grid-template-columns: 240px 1fr; gap: 28px; align-items: center; padding: 22px 0; border-bottom: 1px solid var(--line); }
+.welcome-feature:last-child { border-bottom: 0; }
+.welcome-feature > svg { width: 160px; height: auto; margin: 0; }
+.welcome-faces { display: flex; gap: 10px; }
+.welcome-faces .watch-art { width: 74px; height: 74px; }
+.welcome-foot { margin: 36px 0 8px; }
+@media (max-width: 760px) {
+  .welcome-hero { grid-template-columns: 1fr; padding-top: 4px; }
+  .welcome-hero-art-wrap { order: -1; }
+  .welcome-steps { grid-template-columns: 1fr; }
+  .welcome-feature { grid-template-columns: 1fr; gap: 12px; }
+}
 @media (max-width: 900px) {
   .toolbar { grid-template-columns: 1fr 1fr; }
   .toolbar .start { grid-column: 1 / -1; }

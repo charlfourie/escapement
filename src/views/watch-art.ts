@@ -1,11 +1,12 @@
 import type { Watch } from '../db';
 import { svg } from '../util/dom';
+import { liveFace, reducedMotion } from '../ui/ticker';
 
 /**
  * Stand-in artwork for a watch with no photo. The movement type sets the
- * dial furniture (rotor, small seconds, sunburst, power reserve) and the
- * dial text; the watch's id picks a dial colour and the time shown, so no
- * two placeholders look alike. Words in the name like "cushion" or "tank"
+ * dial furniture (rotor, small seconds, sunburst, power reserve), the dial
+ * text and how the seconds hand moves; the hands show the real time. The
+ * watch's id picks a dial colour, so no two placeholders look alike. Words in the name like "cushion" or "tank"
  * change the case shape.
  */
 
@@ -56,7 +57,7 @@ function dialText(w: Watch): string {
 
 const pt = (cx: number, cy: number, r: number, turn: number) => [cx + Math.sin(turn * 2 * Math.PI) * r, cy - Math.cos(turn * 2 * Math.PI) * r];
 
-export function watchArt(w: Watch): SVGElement {
+export function watchArt(w: Watch, opts: { live?: boolean } = {}): SVGElement {
   const seed = hash(w.id || w.name);
   const pal = DIALS[seed % DIALS.length];
   const shape = caseShape(w);
@@ -138,41 +139,54 @@ export function watchArt(w: Watch): SVGElement {
   const label = dialText(w);
   if (label) parts.push(text(subSeconds ? cy - r * 0.42 + 6 : cy + r * 0.5, label, 3, 500));
 
-  // Date window at 3 on some watches.
+  // Date window at 3 on some watches: today's date.
+  let dateText: SVGElement | null = null;
   if (!subSeconds && type !== 'spring-drive' && (seed >>> 3) % 3 === 0 && shape !== 'tank') {
     parts.push(svg('rect', { x: cx + r * 0.52, y: cy - 2.6, width: 6, height: 5.2, rx: 0.6, fill: '#eae6dc' }));
-    parts.push(
-      svg('text', { x: cx + r * 0.52 + 3, y: cy + 1.6, 'text-anchor': 'middle', 'font-size': 3.8, 'font-weight': 700, fill: '#222', 'font-family': 'system-ui, sans-serif' }, document.createTextNode(String(1 + ((seed >>> 11) % 31)))),
-    );
+    dateText = svg('text', { x: cx + r * 0.52 + 3, y: cy + 1.6, 'text-anchor': 'middle', 'font-size': 3.8, 'font-weight': 700, fill: '#222', 'font-family': 'system-ui, sans-serif' }, document.createTextNode(String(new Date().getDate())));
+    parts.push(dateText);
   }
 
+  // Hands are drawn pointing at 12 and turned to the real time.
+  const hand = (len: number, width: number, colour: string, tail = 0, ox = cx, oy = cy) => {
+    const g = svg('g', {}, svg('line', { x1: ox, y1: oy + tail, x2: ox, y2: oy - len, stroke: colour, 'stroke-width': width, 'stroke-linecap': 'round' }));
+    parts.push(g);
+    return (turn: number) => g.setAttribute('transform', `rotate(${(turn * 360).toFixed(2)} ${ox} ${oy})`);
+  };
+
   // Small seconds at 6 for hand-wound watches.
-  const secTurn = ((seed >>> 17) % 60) / 60;
+  let setSec: (turn: number) => void;
   if (subSeconds) {
     const sy = cy + r * 0.5;
     const sr = r * 0.24;
     parts.push(svg('circle', { cx, cy: sy, r: sr, fill: 'none', stroke: pal.ink, 'stroke-width': 0.6, opacity: 0.8 }));
-    const [sx, sy2] = pt(cx, sy, sr * 0.85, secTurn);
-    parts.push(svg('line', { x1: cx, y1: sy, x2: sx, y2: sy2, stroke: pal.hand, 'stroke-width': 0.9, 'stroke-linecap': 'round' }));
+    setSec = hand(sr * 0.85, 0.9, pal.hand, 0, cx, sy);
   }
-
-  // Hands: a pleasant, different time per watch.
-  // Times chosen so the hands stay clear of the dial text at 12 and 6.
-  const TIMES = [609, 111, 498, 163, 253, 582, 227, 432, 527, 98, 292, 624];
-  const minutes = TIMES[(seed >>> 5) % TIMES.length];
-  const hourTurn = minutes / 720;
-  const minTurn = (minutes % 60) / 60;
-  const [hx, hy] = pt(cx, cy, r * 0.5, hourTurn);
-  const [mx, my] = pt(cx, cy, r * 0.8, minTurn);
-  parts.push(svg('line', { x1: cx, y1: cy, x2: hx, y2: hy, stroke: pal.hand, 'stroke-width': 2.6, 'stroke-linecap': 'round' }));
-  parts.push(svg('line', { x1: cx, y1: cy, x2: mx, y2: my, stroke: pal.hand, 'stroke-width': 1.8, 'stroke-linecap': 'round' }));
-  if (!subSeconds) {
-    const [sx, sy] = pt(cx, cy, r * 0.88, secTurn);
-    const [tx, ty] = pt(cx, cy, r * 0.2, secTurn + 0.5);
-    const secColour = type === 'quartz' || type === 'solar' ? '#ff7a6b' : pal.hand;
-    parts.push(svg('line', { x1: tx, y1: ty, x2: sx, y2: sy, stroke: secColour, 'stroke-width': 0.7, 'stroke-linecap': 'round' }));
-  }
+  const setHour = hand(r * 0.5, 2.6, pal.hand);
+  const setMin = hand(r * 0.8, 1.8, pal.hand);
+  if (!subSeconds) setSec = hand(r * 0.88, 0.7, type === 'quartz' || type === 'solar' ? '#ff7a6b' : pal.hand, r * 0.2);
   parts.push(svg('circle', { cx, cy, r: 1.6, fill: pal.hand }));
 
-  return svg('svg', { viewBox: '0 0 100 100', class: 'watch-art', 'aria-hidden': 'true' }, ...parts);
+  // How the seconds hand moves: quartz steps once a second, a mechanical
+  // watch in small beats at its beat rate, Spring Drive glides.
+  const quartzLike = type === 'quartz' || type === 'solar' || type === 'kinetic';
+  const beatsPerSec = quartzLike ? 1 : type === 'spring-drive' ? 0 : (w.bph || 21600) / 3600;
+  let lastKey = -1;
+  const update = (now: Date) => {
+    const exact = now.getSeconds() + now.getMilliseconds() / 1000;
+    const sec = reducedMotion() ? Math.floor(exact) : beatsPerSec ? Math.floor(exact * beatsPerSec) / beatsPerSec : exact;
+    const key = now.getMinutes() * 60 + sec;
+    if (key === lastKey) return;
+    lastKey = key;
+    const min = now.getMinutes() + sec / 60;
+    setSec(sec / 60);
+    setMin(min / 60);
+    setHour(((now.getHours() % 12) + min / 60) / 12);
+    if (dateText && dateText.textContent !== String(now.getDate())) dateText.textContent = String(now.getDate());
+  };
+
+  const el = svg('svg', { viewBox: '0 0 100 100', class: 'watch-art', 'aria-hidden': 'true' }, ...parts);
+  if (opts.live === false) update(new Date());
+  else liveFace(el, update);
+  return el;
 }

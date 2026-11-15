@@ -8,6 +8,7 @@ import { dataView } from './views/data';
 import { movementDetailView, movementsView } from './views/movements';
 import { quartzTestView } from './views/quartz-test';
 import { logView } from './views/log';
+import { welcomeView, WELCOMED_KEY } from './views/welcome';
 import { initSync } from './sync/sync';
 import { syncChip } from './sync/ui';
 
@@ -28,6 +29,7 @@ const routes: Route[] = [
   [/^\/movements\/(.+)$/, (r, m) => movementDetailView(r, m[1]), 'movements'],
   [/^\/movements$/, (r) => movementsView(r), 'movements'],
   [/^\/log$/, (r) => logView(r), 'log'],
+  [/^\/welcome$/, (r) => welcomeView(r), 'welcome'],
   [/^\/data$/, (r) => dataView(r), 'data'],
 ];
 
@@ -68,6 +70,7 @@ document.getElementById('app')!.append(
     h(
       'span',
       { class: 'footer-links' },
+      h('a', { href: '#/welcome' }, 'About'),
       h('a', { href: '/lab' }, 'Pickup Lab'),
       REPO_URL && h('a', { href: REPO_URL, target: '_blank', rel: 'noopener' }, 'Source on GitHub'),
     ),
@@ -80,6 +83,17 @@ function route() {
   if (typeof cleanup === 'function') cleanup();
   cleanup = undefined;
   view.replaceChildren();
+  // First visit, landing on the default page: say hello first.
+  let welcomed = true;
+  try {
+    welcomed = localStorage.getItem(WELCOMED_KEY) === '1';
+  } catch {
+    /* storage unavailable: don't keep redirecting */
+  }
+  if (!welcomed && !location.hash.replace(/^#\/?/, '')) {
+    location.replace('#/welcome');
+    return;
+  }
   const raw = location.hash.replace(/^#/, '') || '/measure';
   const [path, qs] = raw.split('?');
   const query = new URLSearchParams(qs ?? '');
