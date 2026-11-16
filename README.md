@@ -268,7 +268,7 @@ docs/media/   README screenshots and GIFs
 
 ## 🗺️ Status and roadmap
 
-**v0.6, in active use.** Tested on real watches with an inexpensive clip-on pickup: a 1970s hand-wound Rotary, a 1976 Citizen automatic and a Citizen Eco-Drive. What those recordings taught (turn the input up, where to clip the pickup, quiet unlock clicks, audio dropouts during long quartz runs) is built into the app.
+**v0.6, in active use.** Born of a passion for vintage watches, and tested on real ones with an inexpensive clip-on pickup: a 1970s hand-wound Rotary, a 1976 Citizen automatic and a Citizen Eco-Drive. What those recordings taught (turn the input up, where to clip the pickup, quiet unlock clicks, audio dropouts during long quartz runs) is built into the app.
 
 **Done**
 
