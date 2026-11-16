@@ -530,7 +530,7 @@ export function quartzTestView(root: HTMLElement, watchId: string | null): () =>
             h('li', null, 'The seconds hand of a quartz watch is moved by a tiny motor once a second, and each step clicks. The test times hundreds of those clicks and fits a straight line through them: the slope is the watch’s second.'),
             h('li', null, 'Quartz watches are accurate to a few seconds a month, so the computer’s own clock matters. Every 3 seconds the test asks an internet time server for the time, and works out how fast this computer’s sound card runs. Calibrations are remembered, so later tests get more precise.'),
             h('li', null, 'Longer is better: 5 minutes gives a rough reading, 10 minutes a good one, 20 minutes the best. The ± shows how sure the result is.'),
-            h('li', null, 'Quartz clicks are quiet. Press the pickup’s sensor pad to the centre of the caseback if the case side doesn’t work, and use Mic Boost (+20 dB) on a computer’s mic input.'),
+            h('li', null, 'Quartz clicks are quiet. Press the pickup’s sensor pad to the centre of the caseback if the case side doesn’t work, and turn on the microphone boost on a computer’s mic input.'),
             h('li', null, '2-second steps mean the battery is nearly flat (or, on solar and kinetic watches, the charge is low).'),
             h('li', null, 'Many quartz movements correct themselves in small bursts every 10 or 60 seconds. That evens out over minutes and only adds a little to the ±.'),
           ),

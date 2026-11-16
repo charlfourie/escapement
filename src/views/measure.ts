@@ -343,7 +343,7 @@ export function measureView(root: HTMLElement, query: URLSearchParams): () => vo
       h('li', null, 'Amplitude needs the right lift angle for accuracy. Set it on the watch (52° suits most movements; check the caliber on Ranfft DB).'),
       h('li', null, 'For a full picture, use the six-position test: it measures each position in turn and works out the average rate and the spread between positions.'),
       h('li', null, 'Leave Auto-tune on: it tries every filter and trigger level at once and locks onto the cleanest beat. Setting the beat rate, if you know it, makes locking faster and more reliable.'),
-      h('li', null, 'Nothing locks with the pickup clipped on? The input may simply be too quiet. A piezo pickup on a computer’s mic jack often needs the input level at 100 and Mic Boost at +20 dB (Windows: Sound settings → Recording → Properties → Levels). Pickup Lab checks this for you.'),
+      h('li', null, 'Nothing locks with the pickup clipped on? The input may simply be too quiet. A pickup on a computer’s mic jack often needs the input level turned well up and the microphone boost on (Windows: Sound settings → Recording → Properties → Levels). Pickup Lab checks this for you.'),
       h('li', null, 'Leave Noise reduction off unless there’s a steady hum or whine: on plain hiss it adds false ticks.'),
       h('li', null, 'With Auto-tune off: scattered dots? Raise the trigger level. No ticks? Lower it, or move the mic closer.'),
       h('li', null, 'Choose the beat rate manually if auto-detect picks half the real rate (that happens when only every other tick is heard).'),

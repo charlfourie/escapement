@@ -634,7 +634,7 @@ function renderVerdict() {
   const quietInput = (r.noiseDb != null && r.noiseDb < -75) || (r.watchPeakDb != null && r.watchPeakDb < -55);
   if (quietInput && r.grade !== 'excellent')
     advice.push(
-      'The input level is very low, so the ticks sit close to the sound card’s own noise. Turn the input up: on Windows, Sound settings → Recording → your mic → Properties → Levels, set the level to 100 and Microphone Boost to +20 dB; on a Mac, raise Input volume in Sound settings. With a piezo pickup this alone made a big difference.',
+      'The input level is very low, so the ticks sit close to the sound card’s own noise. Turn the input up: on Windows, Sound settings → Recording → your mic → Properties → Levels, set the level high and turn up Microphone Boost (more isn’t always better: it raises the noise too); on a Mac, raise Input volume in Sound settings. With a pickup on a mic jack this alone often makes a big difference.',
     );
   if (r.grade === 'excellent' || r.grade === 'good') advice.push('This input is ready for measuring.');
 

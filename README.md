@@ -31,9 +31,9 @@
 
 ---
 
-No app, no account, no hardware beyond a R199 clip-on pickup (or a quiet room and your laptop's mic). Your data stays in your browser, with optional sync across devices. Don't have a watch to hand? There's a **simulated watch** built in, so you can try everything right now. And every watch without a photo gets [the most over-engineered image placeholder ever](#-the-most-over-engineered-image-placeholder-ever).
+No app, no account, no hardware beyond an inexpensive clip-on pickup (or a quiet room and your laptop's mic). Your data stays in your browser, with optional sync across devices. Don't have a watch to hand? There's a **simulated watch** built in, so you can try everything right now. And every watch without a photo gets [the most over-engineered image placeholder ever](#-the-most-over-engineered-image-placeholder-ever).
 
-> **A hobbyist's tool, not a bench timegrapher.** Escapement is for watch lovers keeping an eye on their own watches: is it gaining or losing, is it in beat, has its amplitude dropped since last month? It's not a replacement for a professional timegrapher on a watchmaker's bench. A cheap piezo pickup and a computer's sound card can't match a purpose-built microphone and clock, so Escapement goes for a steady, honest reading, with a ± when the signal is noisy, over false precision. In a quiet setup the rate is repeatable to a second or two a day, and amplitude is the roughest figure. Treat the results as a good guide and a way to spot trends, and leave service decisions to a watchmaker.
+> **A hobbyist's tool, not a bench timegrapher.** Escapement is for watch lovers keeping an eye on their own watches: is it gaining or losing, is it in beat, has its amplitude dropped since last month? It's not a replacement for a professional timegrapher on a watchmaker's bench. An inexpensive pickup and a computer's sound card can't match a purpose-built microphone and clock, so Escapement goes for a steady, honest reading, with a ± when the signal is noisy, over false precision. In a quiet setup the rate is repeatable to a second or two a day, and amplitude is the roughest figure. Treat the results as a good guide and a way to spot trends, and leave service decisions to a watchmaker.
 
 ## 🎧 Measure a watch
 
@@ -132,8 +132,8 @@ A companion page at **/lab** for checking a pickup or mic before you measure. It
 
 ## 💡 Getting a clean reading
 
-- A cheap **piezo contact pickup** beats any built-in mic. Clip it to the case side at 9 (or a lug), sensor pad on bare metal. Not the crown, strap or crystal.
-- **Turn the input up.** A piezo on a computer's mic jack is very quiet. Input at 100 plus **Microphone Boost +20 dB** took real ticks from 3× to 10× the background. +30 dB was no better. A Hi-Z input (a USB audio interface's guitar input) suits a piezo best.
+- An inexpensive **contact pickup** beats any built-in mic. Clip it to the case side at 9 (or a lug), sensor pad on bare metal. Not the crown, strap or crystal.
+- **Turn the input up.** A piezo pickup on a computer's mic jack is often very quiet. Set the input level high and try the sound card's **microphone boost**; more boost isn't always better, since it raises the noise too. Pickup Lab shows when the level is right. A Hi-Z input (a USB audio interface's guitar input) suits a piezo best.
 - Use the **rear jack** on a desktop: the front panel picks up far more hiss.
 - A quiet room, the watch dial up on a soft cloth, cable slack. Wait for two tidy lines, then let it run 30 to 60 seconds.
 - Leave **noise reduction** off unless there's a steady hum or whine.
@@ -268,7 +268,7 @@ docs/media/   README screenshots and GIFs
 
 ## 🗺️ Status and roadmap
 
-**v0.6, in active use.** Tested on real watches through a clip-on piezo pickup on a desktop's mic jack: a 1970s hand-wound Rotary, a 1976 Citizen automatic and a Citizen Eco-Drive. What those recordings taught (turn the input up, where to clip the pickup, quiet unlock clicks, audio dropouts during long quartz runs) is built into the app.
+**v0.6, in active use.** Tested on real watches with an inexpensive clip-on pickup: a 1970s hand-wound Rotary, a 1976 Citizen automatic and a Citizen Eco-Drive. What those recordings taught (turn the input up, where to clip the pickup, quiet unlock clicks, audio dropouts during long quartz runs) is built into the app.
 
 - [x] Rate, beat error, amplitude, auto beat rate, paper trace
 - [x] Guided six-position test

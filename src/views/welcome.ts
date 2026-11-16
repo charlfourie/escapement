@@ -238,7 +238,7 @@ export function welcomeView(root: HTMLElement): void {
       h(
         'ol',
         { class: 'welcome-steps' },
-        h('li', null, mini.clip(), h('h3', null, 'Clip the pickup to the case'), h('p', null, 'A cheap piezo contact pickup on the case side hears the ticks and ignores the room. A phone or laptop mic works in a quiet room.')),
+        h('li', null, mini.clip(), h('h3', null, 'Clip the pickup to the case'), h('p', null, 'An inexpensive contact pickup on the case side hears the ticks and ignores the room. A phone or laptop mic works in a quiet room.')),
         h('li', null, mini.spectrum(), h('h3', null, 'Check the signal'), h('p', null, 'Pickup Lab finds the best input, shows the noise and tells you if the level needs turning up.')),
         h('li', null, mini.trace(), h('h3', null, 'Measure'), h('p', null, 'Two tidy lines of dots mean a clean reading. Stop when you’re happy: it’s saved to the watch and to the Log.')),
       ),
@@ -259,7 +259,7 @@ export function welcomeView(root: HTMLElement): void {
       h(
         'p',
         { class: 'welcome-note' },
-        'Escapement is for keeping an eye on your own watches: is it gaining or losing, is it in beat, has its amplitude dropped since last month? It isn’t a replacement for a professional timegrapher on a watchmaker’s bench. A cheap pickup and a computer’s sound card can’t match a purpose-built microphone and clock, so it goes for a steady, honest reading, with a ± when the signal is noisy, rather than false precision. Take the results as a good guide and a way to spot trends, and leave service decisions to a watchmaker.',
+        'Escapement is for keeping an eye on your own watches: is it gaining or losing, is it in beat, has its amplitude dropped since last month? It isn’t a replacement for a professional timegrapher on a watchmaker’s bench. An inexpensive pickup and a computer’s sound card can’t match a purpose-built microphone and clock, so it goes for a steady, honest reading, with a ± when the signal is noisy, rather than false precision. Take the results as a good guide and a way to spot trends, and leave service decisions to a watchmaker.',
       ),
 
       h(
