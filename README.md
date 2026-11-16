@@ -270,19 +270,27 @@ docs/media/   README screenshots and GIFs
 
 **v0.6, in active use.** Tested on real watches with an inexpensive clip-on pickup: a 1970s hand-wound Rotary, a 1976 Citizen automatic and a Citizen Eco-Drive. What those recordings taught (turn the input up, where to clip the pickup, quiet unlock clicks, audio dropouts during long quartz runs) is built into the app.
 
-- [x] Rate, beat error, amplitude, auto beat rate, paper trace
-- [x] Guided six-position test
-- [x] Watch collection, every test saved, the Log, export and import
-- [x] Clip recorder, offline analyser and Pickup Lab
-- [x] Tested on real watches with a contact pickup
-- [x] Acoustic quartz test with sound-card clock calibration and dropout handling, battery log
-- [x] Free AI identification
-- [x] Live drawn watch faces, a face designer, watch time, a pullable crown and dial ageing
-- [x] Reference library of ~3,000 movements, Tested tags, Find the movement
-- [x] Optional online collection: GitHub sign-in and manual sync across devices
-- [ ] Installable offline app
-- [ ] Public share page for chosen watches
-- [ ] Service-due hints from amplitude trends
+**Done**
+
+- [x] **Live timegrapher:** rate, beat error, amplitude, auto beat rate, paper trace
+- [x] **Your collection:** watches, every test saved, the Log, export and backup
+- [x] **Six-position test, Pickup Lab** and the offline clip analyser
+- [x] **Tested on real watches:** auto-tune, readouts that settle with an honest ±, surviving a lost beat
+- [x] **Quartz:** acoustic test with sound-card clock calibration, time checks, battery log
+- [x] **Movements:** reference library of ~3,000 calibres, Find the movement, free AI identification
+- [x] **The most over-engineered image placeholder ever**
+- [x] **Optional sync** across devices
+
+**Next**
+
+- [ ] **Pickup comparison and calibration:** record the same watch through several pickups and compare them side by side; each input remembers its own best settings, and the recordings become a test set for tuning detection. Plus an install option, so it can live on your home screen with its own icon.
+- [ ] **Service hints:** trends from your history, like amplitude falling or the rate drifting since the last service
+- [ ] **Public share page** for chosen watches and their results
+
+**Later, for fun**
+
+- [ ] A display caseback with the balance swinging at the measured amplitude, and each watch's own recorded tick
+- [ ] A ridiculously formal certificate for six-position tests that land within chronometer limits
 
 ## Licence
 
