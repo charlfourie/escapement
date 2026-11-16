@@ -140,7 +140,10 @@ describe('online sync API', () => {
   it('validates pushes', async () => {
     const owner = await signIn();
     const { POST } = await import('../api/sync');
-    const res = await POST(req('/api/sync', { method: 'POST', cookie: owner, headers: { 'x-escapement': '1' }, body: JSON.stringify({ watches: [{ name: 'no id' }] }) }));
-    expect(res.status).toBe(400);
+    const post = (body: string) => POST(req('/api/sync', { method: 'POST', cookie: owner, headers: { 'x-escapement': '1' }, body }));
+    expect((await post('null')).status).toBe(400);
+    expect((await post('[]')).status).toBe(400);
+    expect((await post(JSON.stringify({ watches: [{ name: 'no id' }] }))).status).toBe(400);
+    expect((await post(JSON.stringify({ deletions: [{ kind: 'watches' }] }))).status).toBe(400);
   });
 });

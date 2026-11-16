@@ -77,7 +77,19 @@ describe('sync engine against the real API', () => {
     const { putRecord } = await import('../api/_lib/store');
     await putRecord('watches', { ...online, name: 'Renamed on phone', updatedAt: Date.now() + 10_000 });
     await putRecord('movements', { id: '7s26', caliber: '7S26', maker: 'Seiko', bph: 21600, liftAngle: 53, jewels: 21, size: '', notes: '', createdAt: 1, updatedAt: Date.now() });
+    const apiFetch = globalThis.fetch;
+    let failPhotoDownload = true;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (new URL(String(input), 'https://escapement.test').pathname === '/api/photo' && failPhotoDownload) {
+        failPhotoDownload = false;
+        return new Response('temporary failure', { status: 503 });
+      }
+      return apiFetch(input, init);
+    });
     await sync.syncNow();
+    expect(sync.getSyncState().status).toBe('error');
+    await sync.syncNow();
+    vi.stubGlobal('fetch', apiFetch);
     expect((await db.watches.get(w.id))!.name).toBe('Renamed on phone');
     expect(await db.movements.get('7s26')).toMatchObject({ jewels: 21 });
     expect((await db.watches.get(w.id))!.photo).toBeInstanceOf(Blob);

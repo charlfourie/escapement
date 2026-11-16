@@ -146,8 +146,8 @@ async function pull(): Promise<number> {
     const isNewer = !local || updatedAt(doc) > updatedAt(local);
     if (!isNewer) continue;
     if (doc.hasPhoto) {
-      const r = await fetch(`/api/photo?id=${encodeURIComponent(doc.id)}`, { credentials: 'same-origin' });
-      photos.set(doc.id, r.ok ? await r.blob() : (local?.photo ?? null));
+      const r = await api(`/api/photo?id=${encodeURIComponent(doc.id)}`);
+      photos.set(doc.id, await r.blob());
     } else {
       photos.set(doc.id, null);
     }
